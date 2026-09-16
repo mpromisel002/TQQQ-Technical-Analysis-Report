@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TQQQ Support Levels</title>
+<meta name="description" content="Daily-updated TQQQ support and resistance levels from 3-day swing lows and highs, with trend and momentum indicators. Educational use only.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230b0b0b'/><path d='M5 22h22' stroke='%230ca30c' stroke-width='3'/><path d='M7 17l5-6 5 4 7-9' stroke='white' stroke-width='2.5' fill='none'/></svg>">
+<link rel="stylesheet" href="css/style.css">
+<script>
+  // apply saved theme before paint
+  try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
+  <div class="wrap head-row">
+    <div>
+      <h1>TQQQ support &amp; resistance</h1>
+      <p class="sub">ProShares UltraPro QQQ (3× Nasdaq-100) · levels from <span id="periodText">3</span>-day swing lows and highs</p>
+    </div>
+    <div class="head-meta">
+      <span id="asOf" class="asof" aria-live="polite">Loading…</span>
+      <button id="themeBtn" class="icon-btn" type="button" aria-label="Switch colour theme" title="Switch colour theme">
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<nav class="controls" aria-label="Analysis settings">
+  <div class="wrap controls-row">
+    <div class="seg" role="radiogroup" aria-label="Support window" id="windowSeg">
+      <button type="button" role="radio" data-w="1m">1M</button>
+      <button type="button" role="radio" data-w="3m">3M</button>
+      <button type="button" role="radio" data-w="6m">6M</button>
+      <button type="button" role="radio" data-w="9m">9M</button>
+      <button type="button" role="radio" data-w="12m">12M</button>
+      <label class="custom">
+        <span class="sr">Custom window in trading sessions</span>
+        <input id="customWin" type="number" min="21" max="252" step="1" inputmode="numeric" placeholder="days" aria-describedby="customHint">
+      </label>
+    </div>
+    <span id="customHint" class="hint">Custom: 21–252 sessions</span>
+    <details class="settings" id="settings">
+      <summary>Method settings</summary>
+      <div class="settings-panel">
+        <label>Swing period <output id="periodOut">3</output> sessions
+          <input id="period" type="range" min="2" max="10" step="1" value="3"></label>
+        <label>Cluster distance <output id="clusterOut">0.5</output> × ATR
+          <input id="cluster" type="range" min="0.25" max="1.5" step="0.05" value="0.5"></label>
+        <label>Minimum touches <output id="touchesOut">1</output>
+          <input id="touches" type="range" min="1" max="5" step="1" value="1"></label>
+        <button type="button" id="resetSettings" class="link-btn">Reset to defaults</button>
+      </div>
+    </details>
+    <div class="dl">
+      <button type="button" id="dlCsv" class="btn">Download CSV</button>
+      <button type="button" id="dlPng" class="btn">Download PNG</button>
+    </div>
+  </div>
+</nav>
+
+<main id="main" class="wrap">
+  <div id="stale" class="banner" hidden></div>
+
+  <section class="card findings" aria-labelledby="h-find">
+    <h2 id="h-find">Key findings <span class="muted" id="winLabel"></span></h2>
+    <ul id="findings"><li class="skeleton">Loading data…</li></ul>
+  </section>
+
+  <section aria-label="Key numbers" class="kpis" id="kpis"></section>
+
+  <section class="card" aria-labelledby="h-chart">
+    <div class="card-head">
+      <h2 id="h-chart">Price, support &amp; resistance</h2>
+      <div class="zoom">
+        <button type="button" class="icon-btn" data-zoom="in" aria-label="Zoom in">+</button>
+        <button type="button" class="icon-btn" data-zoom="out" aria-label="Zoom out">−</button>
+        <button type="button" class="btn small" data-zoom="reset">Reset</button>
+      </div>
+    </div>
+    <ul class="legend" id="legend"></ul>
+    <div id="mainChart" class="main-chart" aria-describedby="chartHelp"></div>
+    <p id="chartHelp" class="help">Hover or tap for values. Drag sideways to pan; Ctrl/⌘ + scroll or pinch to zoom; double-click to reset. Shaded bands are zones — darker means stronger. Dashed bands are broken levels that switched roles. The panel on the right of the price chart shows how much volume traded at each price.</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-table">
+    <h2 id="h-table">Support &amp; resistance levels</h2>
+    <div class="table-scroll"><table class="levels" id="levels">
+      <thead><tr>
+        <th scope="col">Level</th><th scope="col" class="num">Zone price</th><th scope="col" class="num">Band</th>
+        <th scope="col" class="num">Distance</th><th scope="col" class="num">Touches</th><th scope="col">Last test</th>
+        <th scope="col">Strength</th><th scope="col">Status</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="help"><b>How to read strength:</b> a 0–100 score from how many times price turned at the zone (40%), how recently it was tested (30%), trading volume at those turns (20%) and how far price moved away afterwards (10%). Scores compare zones within the selected window only. <b>Holding</b>: not tested in the last 10 sessions. <b>Tested</b>: price visited it recently or is inside it now. <b>Broken</b>: price closed through it, so it has switched roles (old support now overhead, or old resistance now below).</p>
+  </section>
+
+  <div class="grid2">
+    <section class="card" aria-labelledby="h-cmp">
+      <h2 id="h-cmp">Window comparison</h2>
+      <p class="help">Top levels found with 1, 3, 6 and 12-month windows. Dot size = strength. A ring marks a level found in at least 3 windows — these tend to be the most reliable.</p>
+      <ul class="legend" id="cmpLegend"></ul>
+      <div id="cmpChart"></div>
+      <p id="cmpSummary" class="note"></p>
+    </section>
+    <section class="card" aria-labelledby="h-bench">
+      <h2 id="h-bench">TQQQ vs QQQ</h2>
+      <p class="help">Growth of $100 over the selected window. TQQQ aims for 3× QQQ's <em>daily</em> move; over longer periods the result drifts from 3× the period return, more so in choppy markets.</p>
+      <ul class="legend" id="benchLegend"></ul>
+      <div id="benchChart"></div>
+      <div class="mini-stats" id="benchStats"></div>
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="h-ind">
+    <h2 id="h-ind">Technical indicators</h2>
+    <div class="table-scroll"><table class="ind" id="indTable">
+      <thead><tr><th scope="col">Indicator</th><th scope="col">Settings</th><th scope="col" class="num">Value</th><th scope="col">Reading</th><th scope="col">What it tells you</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-chg">
+    <h2 id="h-chg">What changed since the previous session</h2>
+    <ul id="changes" class="changes"></ul>
+    <p class="help" id="changesNote"></p>
+  </section>
+
+  <section class="card" aria-labelledby="h-method">
+    <details class="method">
+      <summary><h2 id="h-method">Method &amp; data</h2></summary>
+      <div class="method-body">
+        <h3>Support detection</h3>
+        <ol>
+          <li><b>Swing lows.</b> A day is a swing low when its low is the lowest from <span class="pv">3</span> sessions before it to <span class="pv">3</span> sessions after it. The most recent <span class="pv">3</span> sessions can't be confirmed yet and are drawn as hollow “pending” markers.</li>
+          <li><b>Rolling low.</b> The lowest low of the last <span class="pv">3</span> sessions is drawn as a step line — the nearest short-term floor.</li>
+          <li><b>Zones.</b> Swing lows within a set distance of each other (default 0.5 × the 14-day Average True Range, about 2–3% for TQQQ) are merged into one zone. The zone price is the volume-weighted average of its lows; the band runs from its lowest to highest low.</li>
+          <li><b>Strength.</b> Touches 40%, recency 30%, volume at the touches 20%, bounce afterwards 10%. The table shows the top 5 zones on each side of the price.</li>
+        </ol>
+        <h3>Resistance detection</h3>
+        <p>The same steps run on the highs: swing highs, clustered and scored the same way. A support that price closes clearly below (by more than half the cluster distance) is marked broken and becomes resistance; a resistance that price closes clearly above becomes support.</p>
+        <h3>Trend call</h3>
+        <p>Three checks: price above/below both the 50 and 200-day averages; the 50-day average's slope over 20 sessions; and whether the last two swing lows are rising or falling. All three agree → <b>Uptrend</b> or <b>Downtrend</b>; otherwise <b>Mixed</b>.</p>
+        <h3>Data</h3>
+        <p>Daily prices for TQQQ and QQQ, adjusted for splits and dividends, from Yahoo Finance (with Tiingo / Alpha Vantage as backups). About two years are loaded so the 200-day average is ready across the full 12-month view. A GitHub Actions job refreshes the data every weekday evening after the US close, checks for missing sessions, zero volume and suspicious jumps, and only then publishes. Current settings are saved in the page address so views can be bookmarked or shared.</p>
+        <p class="muted" id="dataMeta"></p>
+      </div>
+    </details>
+  </section>
+
+  <footer class="disclaimer">
+    <p><b>Educational use only — not investment advice.</b> TQQQ is a 3× leveraged ETF that resets daily; it can lose value quickly, and over periods longer than a day its return can differ greatly from 3× the Nasdaq-100. Support and resistance levels are descriptions of past trading, not predictions, and levels in leveraged funds can break sharply. Data may be delayed or contain errors.</p>
+  </footer>
+</main>
+
+<script src="js/support.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

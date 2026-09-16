@@ -1,0 +1,18 @@
+{
+ "as_of": "2026-09-15",
+ "previous": "2026-09-14",
+ "items": [
+  {
+   "type": "new",
+   "text": "Support at $56.40 (4 touches) moved into the top 5."
+  },
+  {
+   "type": "broken",
+   "text": "Support at $70.39 broke; it is now overhead resistance."
+  },
+  {
+   "type": "dropped",
+   "text": "Resistance at $79.50 dropped out of the top list."
+  }
+ ]
+}
