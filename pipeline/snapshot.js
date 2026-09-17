@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Writes the daily support/resistance snapshot using the same method as the page.
+ * Writes the daily support snapshot using the same method as the page.
  *   node pipeline/snapshot.js            -> snapshot for the latest session
  *   node pipeline/snapshot.js --backfill 30   -> also (re)build the last 30 sessions
  * Outputs:
@@ -44,4 +44,4 @@ const cur = load(dates[dates.length - 1]);
 const prev = dates.length > 1 ? load(dates[dates.length - 2]) : null;
 const changes = { as_of: cur.as_of, previous: prev ? prev.as_of : null, items: SR.diffSnapshots(prev, cur) };
 fs.writeFileSync(path.join(DATA, "changes.json"), JSON.stringify(changes, null, 1));
-console.log(`snapshot ${cur.as_of}: ${cur.supports.length} supports, ${cur.resistances.length} resistances, ${changes.items.length} changes; ${dates.length} snapshots kept`);
+console.log(`snapshot ${cur.as_of}: ${cur.supports.length} supports, ${cur.broken.length} broken, ${changes.items.length} changes; ${dates.length} snapshots kept`);

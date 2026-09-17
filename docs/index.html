@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TQQQ Support Levels</title>
-<meta name="description" content="Daily-updated TQQQ support and resistance levels from 3-day swing lows and highs, with trend and momentum indicators. Educational use only.">
+<meta name="description" content="Daily-updated TQQQ support levels found from 3-day swing lows, with trend and momentum indicators. Educational use only.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230b0b0b'/><path d='M5 22h22' stroke='%230ca30c' stroke-width='3'/><path d='M7 17l5-6 5 4 7-9' stroke='white' stroke-width='2.5' fill='none'/></svg>">
 <link rel="stylesheet" href="css/style.css">
 <script>
@@ -17,8 +17,8 @@
 <header class="site-head">
   <div class="wrap head-row">
     <div>
-      <h1>TQQQ support &amp; resistance</h1>
-      <p class="sub">ProShares UltraPro QQQ (3× Nasdaq-100) · levels from <span id="periodText">3</span>-day swing lows and highs</p>
+      <h1>TQQQ support levels</h1>
+      <p class="sub">ProShares UltraPro QQQ (3× Nasdaq-100) · price floors found from <span id="periodText">3</span>-day swing lows</p>
     </div>
     <div class="head-meta">
       <span id="asOf" class="asof" aria-live="polite">Loading…</span>
@@ -31,7 +31,7 @@
 
 <nav class="controls" aria-label="Analysis settings">
   <div class="wrap controls-row">
-    <div class="seg" role="radiogroup" aria-label="Support window" id="windowSeg">
+    <div class="seg" role="radiogroup" aria-label="Look-back window" id="windowSeg">
       <button type="button" role="radio" data-w="1m">1M</button>
       <button type="button" role="radio" data-w="3m">3M</button>
       <button type="button" role="radio" data-w="6m">6M</button>
@@ -42,7 +42,7 @@
         <input id="customWin" type="number" min="21" max="252" step="1" inputmode="numeric" placeholder="days" aria-describedby="customHint">
       </label>
     </div>
-    <span id="customHint" class="hint">Custom: 21–252 sessions</span>
+    <span id="customHint" class="hint">How far back to look · 21–252 sessions</span>
     <details class="settings" id="settings">
       <summary>Method settings</summary>
       <div class="settings-panel">
@@ -74,42 +74,58 @@
 
   <section class="card" aria-labelledby="h-chart">
     <div class="card-head">
-      <h2 id="h-chart">Price, support &amp; resistance</h2>
+      <h2 id="h-chart">Price &amp; support zones</h2>
       <div class="zoom">
         <button type="button" class="icon-btn" data-zoom="in" aria-label="Zoom in">+</button>
         <button type="button" class="icon-btn" data-zoom="out" aria-label="Zoom out">−</button>
         <button type="button" class="btn small" data-zoom="reset">Reset</button>
       </div>
     </div>
+    <p class="help lede">Each green band is a price area where TQQQ has stopped falling and turned back up. The darker the band, the more reliable the level has been. <b>S1</b> is the closest support below today's price, <b>S2</b> the next one down, and so on.</p>
     <ul class="legend" id="legend"></ul>
+    <div class="chips" role="group" aria-label="Chart panels">
+      <span class="chips-label">Show:</span>
+      <label class="chip"><input type="checkbox" data-pane="vol" checked> Volume</label>
+      <label class="chip"><input type="checkbox" data-pane="rsi" checked> RSI</label>
+      <label class="chip"><input type="checkbox" data-pane="macd"> MACD</label>
+      <label class="chip"><input type="checkbox" data-pane="dd"> % below 12-month high</label>
+      <label class="chip"><input type="checkbox" data-pane="rolling" checked> <span><span class="pv-label">3</span>-day low</span></label>
+      <label class="chip"><input type="checkbox" data-pane="profile"> Volume by price</label>
+    </div>
     <div id="mainChart" class="main-chart" aria-describedby="chartHelp"></div>
-    <p id="chartHelp" class="help">Hover or tap for values. Drag sideways to pan; Ctrl/⌘ + scroll or pinch to zoom; double-click to reset. Shaded bands are zones — darker means stronger. Dashed bands are broken levels that switched roles. The panel on the right of the price chart shows how much volume traded at each price.</p>
+    <p id="chartHelp" class="help">Hover or tap for the numbers behind any day. Drag sideways to pan; Ctrl/⌘ + scroll or pinch to zoom; double-click to reset. The greyed-out area on the left is history <em>outside</em> the window you picked — it is shown for context but is not used to find levels.</p>
   </section>
 
   <section class="card" aria-labelledby="h-table">
-    <h2 id="h-table">Support &amp; resistance levels</h2>
+    <h2 id="h-table">Support levels in detail</h2>
     <div class="table-scroll"><table class="levels" id="levels">
       <thead><tr>
-        <th scope="col">Level</th><th scope="col" class="num">Zone price</th><th scope="col" class="num">Band</th>
-        <th scope="col" class="num">Distance</th><th scope="col" class="num">Touches</th><th scope="col">Last test</th>
+        <th scope="col">Level</th><th scope="col" class="num">Zone price</th><th scope="col" class="num">Zone range</th>
+        <th scope="col" class="num">Below price</th><th scope="col" class="num">Times held</th><th scope="col">Last tested</th>
         <th scope="col">Strength</th><th scope="col">Status</th>
       </tr></thead>
       <tbody></tbody>
     </table></div>
-    <p class="help"><b>How to read strength:</b> a 0–100 score from how many times price turned at the zone (40%), how recently it was tested (30%), trading volume at those turns (20%) and how far price moved away afterwards (10%). Scores compare zones within the selected window only. <b>Holding</b>: not tested in the last 10 sessions. <b>Tested</b>: price visited it recently or is inside it now. <b>Broken</b>: price closed through it, so it has switched roles (old support now overhead, or old resistance now below).</p>
+    <dl class="defs">
+      <div><dt>Zone price</dt><dd>The middle of the band — the single number to watch, weighted towards the days with the most trading.</dd></div>
+      <div><dt>Zone range</dt><dd>The lowest and highest price inside the band. Support is an area, not an exact number.</dd></div>
+      <div><dt>Times held</dt><dd>How many separate swing lows formed in that band during the window.</dd></div>
+      <div><dt>Strength</dt><dd>A 0–100 score: how often price turned there (40%), how recently (30%), how much volume traded at those turns (20%) and how far price bounced afterwards (10%). Scores only compare levels inside the window you picked. 70+ is <b>Strong</b>, 40–69 <b>Moderate</b>, below 40 <b>Weak</b>.</dd></div>
+      <div><dt>Status</dt><dd><b>In play</b> — price is inside the zone now. <b>Recently tested</b> — price visited it in the last 10 sessions. <b>Holding</b> — untouched recently.</dd></div>
+    </dl>
   </section>
 
   <div class="grid2">
     <section class="card" aria-labelledby="h-cmp">
-      <h2 id="h-cmp">Window comparison</h2>
-      <p class="help">Top levels found with 1, 3, 6 and 12-month windows. Dot size = strength. A ring marks a level found in at least 3 windows — these tend to be the most reliable.</p>
+      <h2 id="h-cmp">Does the level hold up at other window lengths?</h2>
+      <p class="help">The same method run over 1, 3, 6 and 12 months. Bigger, darker dots are stronger levels. A dashed line and a ring mark a level that shows up in at least 3 of the 4 windows — those are the levels least likely to be an artefact of the window you happened to pick.</p>
       <ul class="legend" id="cmpLegend"></ul>
       <div id="cmpChart"></div>
       <p id="cmpSummary" class="note"></p>
     </section>
     <section class="card" aria-labelledby="h-bench">
       <h2 id="h-bench">TQQQ vs QQQ</h2>
-      <p class="help">Growth of $100 over the selected window. TQQQ aims for 3× QQQ's <em>daily</em> move; over longer periods the result drifts from 3× the period return, more so in choppy markets.</p>
+      <p class="help">What $100 would have grown to over the selected window. TQQQ aims for 3× QQQ's <em>daily</em> move; over longer periods the result drifts away from 3× the period return, more so in choppy markets.</p>
       <ul class="legend" id="benchLegend"></ul>
       <div id="benchChart"></div>
       <div class="mini-stats" id="benchStats"></div>
@@ -118,6 +134,7 @@
 
   <section class="card" aria-labelledby="h-ind">
     <h2 id="h-ind">Technical indicators</h2>
+    <p class="help">Context for the levels above: is the broader trend helping or fighting them, and is momentum stretched?</p>
     <div class="table-scroll"><table class="ind" id="indTable">
       <thead><tr><th scope="col">Indicator</th><th scope="col">Settings</th><th scope="col" class="num">Value</th><th scope="col">Reading</th><th scope="col">What it tells you</th></tr></thead>
       <tbody></tbody>
@@ -132,17 +149,31 @@
 
   <section class="card" aria-labelledby="h-method">
     <details class="method">
-      <summary><h2 id="h-method">Method &amp; data</h2></summary>
+      <summary><h2 id="h-method">Method, definitions &amp; data</h2></summary>
       <div class="method-body">
-        <h3>Support detection</h3>
+        <h3>Plain-English glossary</h3>
+        <dl class="defs wide">
+          <div><dt>Support</dt><dd>A price area where buyers have repeatedly stepped in and stopped a fall. It is evidence of past behaviour, not a guarantee about the future.</dd></div>
+          <div><dt>Swing low</dt><dd>A day that is lower than the <span class="pv">3</span> days before it and the <span class="pv">3</span> days after it — a local bottom on the chart.</dd></div>
+          <div><dt>Window</dt><dd>How much history the method looks at. A 12-month window finds long-standing levels; a 1-month window finds only what matters right now.</dd></div>
+          <div><dt>Zone</dt><dd>Several swing lows at nearly the same price, merged into one band. Real support is a range, not a single number.</dd></div>
+          <div><dt>Touch</dt><dd>One swing low inside a zone. More touches means more buyers have defended that area.</dd></div>
+          <div><dt>Broken level</dt><dd>Price closed clearly below a zone. The level stops counting as support and leaves the list.</dd></div>
+          <div><dt>ATR</dt><dd>Average True Range: the size of a typical day's move. Used here to decide how wide a support zone should be and how far away a stop would sit.</dd></div>
+          <div><dt>RSI</dt><dd>A 0–100 momentum gauge. Above 70 the recent rise looks stretched; below 30 the recent fall looks stretched.</dd></div>
+          <div><dt>MACD</dt><dd>Compares a fast and a slow average of price to show whether momentum is building or fading.</dd></div>
+          <div><dt>Moving average</dt><dd>The average closing price over the last 20, 50 or 200 days — a smoothed picture of the trend.</dd></div>
+        </dl>
+        <h3>How support is found</h3>
         <ol>
           <li><b>Swing lows.</b> A day is a swing low when its low is the lowest from <span class="pv">3</span> sessions before it to <span class="pv">3</span> sessions after it. The most recent <span class="pv">3</span> sessions can't be confirmed yet and are drawn as hollow “pending” markers.</li>
           <li><b>Rolling low.</b> The lowest low of the last <span class="pv">3</span> sessions is drawn as a step line — the nearest short-term floor.</li>
-          <li><b>Zones.</b> Swing lows within a set distance of each other (default 0.5 × the 14-day Average True Range, about 2–3% for TQQQ) are merged into one zone. The zone price is the volume-weighted average of its lows; the band runs from its lowest to highest low.</li>
-          <li><b>Strength.</b> Touches 40%, recency 30%, volume at the touches 20%, bounce afterwards 10%. The table shows the top 5 zones on each side of the price.</li>
+          <li><b>Zones.</b> Swing lows within a set distance of each other (default 0.5 × the 14-day ATR, about 2–3% for TQQQ) are merged into one zone. The zone price is the volume-weighted average of its lows; the range runs from its lowest to highest low.</li>
+          <li><b>Strength.</b> Touches 40%, recency 30%, volume at the touches 20%, bounce afterwards 10%. The five strongest zones are reported.</li>
+          <li><b>Broken zones.</b> Once price closes more than half the cluster distance below a zone, that zone is dropped from the list; the break is reported under “What changed”.</li>
         </ol>
-        <h3>Resistance detection</h3>
-        <p>The same steps run on the highs: swing highs, clustered and scored the same way. A support that price closes clearly below (by more than half the cluster distance) is marked broken and becomes resistance; a resistance that price closes clearly above becomes support.</p>
+        <h3>Why there is no resistance on this page</h3>
+        <p>The brief asks for support. Overhead levels were removed so the chart carries one idea at a time — where the floors are — which is what the levels are meant to inform.</p>
         <h3>Trend call</h3>
         <p>Three checks: price above/below both the 50 and 200-day averages; the 50-day average's slope over 20 sessions; and whether the last two swing lows are rising or falling. All three agree → <b>Uptrend</b> or <b>Downtrend</b>; otherwise <b>Mixed</b>.</p>
         <h3>Data</h3>
@@ -153,7 +184,7 @@
   </section>
 
   <footer class="disclaimer">
-    <p><b>Educational use only — not investment advice.</b> TQQQ is a 3× leveraged ETF that resets daily; it can lose value quickly, and over periods longer than a day its return can differ greatly from 3× the Nasdaq-100. Support and resistance levels are descriptions of past trading, not predictions, and levels in leveraged funds can break sharply. Data may be delayed or contain errors.</p>
+    <p><b>Educational use only — not investment advice.</b> TQQQ is a 3× leveraged ETF that resets daily; it can lose value quickly, and over periods longer than a day its return can differ greatly from 3× the Nasdaq-100. Support levels are descriptions of past trading, not predictions, and levels in leveraged funds can break sharply. Data may be delayed or contain errors.</p>
   </footer>
 </main>
 

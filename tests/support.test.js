@@ -1,4 +1,4 @@
-// Unit tests for docs/js/support.js — run with: node --test tests/
+// Unit tests for docs/js/support.js (support-only method) — run with: node --test tests/
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -64,6 +64,13 @@ test("cluster merges prices within tolerance and volume-weights them", () => {
   assert.ok(Math.abs(z[0].price - (10 * 100 + 10.4 * 300 + 10.2 * 100) / 500) < 1e-9);
 });
 
+test("strengthTier buckets the 0-100 score", () => {
+  assert.equal(SR.strengthTier(85), "Strong");
+  assert.equal(SR.strengthTier(70), "Strong");
+  assert.equal(SR.strengthTier(55), "Moderate");
+  assert.equal(SR.strengthTier(12), "Weak");
+});
+
 test("analyze finds a double-bottom support and scores it higher than a single touch", () => {
   // two dips to ~50, one dip to ~60, price ends at 70
   const path = [];
@@ -79,19 +86,43 @@ test("analyze finds a double-bottom support and scores it higher than a single t
   assert.equal(s50.touches, 2);
   assert.ok(s60);
   assert.ok(s50.components.touches > s60.components.touches);
-  assert.ok(res.supports.every((z) => z.price < res.price));
-  assert.ok(res.resistances.every((z) => z.price > res.price || z.status === "Tested"));
+  // every reported support is a floor: no zone sits clearly above the last close
+  assert.ok(res.supports.every((z) => z.low - res.tol / 2 <= res.price));
+  assert.deepEqual(res.supports.map((z) => z.id), res.supports.map((_, i) => "S" + (i + 1)));
+  assert.deepEqual([...res.supports].sort((a, b) => b.price - a.price).map((z) => z.id), res.supports.map((z) => z.id));
 });
 
-test("a support that price closed below is Broken and becomes resistance", () => {
+test("no resistance is reported anywhere in the output", () => {
+  const d = synth([70, 69, 68, 60, 68, 69, 70, 71, 72, 73, 74, 73, 72, 71, 70]);
+  const res = SR.analyze(d, { window: 252 });
+  assert.equal(res.resistances, undefined);
+  assert.equal(res.pivots.highs, undefined);
+  assert.ok(!("role" in res.zones[0]));
+  assert.ok(Array.isArray(res.broken));
+});
+
+test("a support that price closed below is Broken and leaves the support list", () => {
   const path = [70, 69, 68, 60, 68, 69, 70, 69, 68, 67, 66, 65, 60, 55, 54, 53, 52, 52, 52];
   const d = synth(path);
   const res = SR.analyze(d, { window: 252 });
-  const z = res.zones.find((x) => x.origin === "support" && Math.abs(x.price - 60) < 0.01);
+  const z = res.zones.find((x) => Math.abs(x.price - 60) < 0.01);
   assert.ok(z);
-  assert.equal(z.role, "resistance");
+  assert.equal(z.broken, true);
   assert.equal(z.status, "Broken");
-  assert.ok(res.resistances.includes(z));
+  assert.ok(res.broken.includes(z));
+  assert.ok(!res.supports.includes(z));
+});
+
+test("status tells apart in-play, recently tested and holding zones", () => {
+  // dip to 50, recover, then drift sideways well above it
+  const path = [80, 79, 78, 50, 78, 79, 80];
+  for (let i = 0; i < 40; i++) path.push(75);
+  const res = SR.analyze(synth(path), { window: 252 });
+  const z = res.supports.find((x) => Math.abs(x.price - 50) < 1);
+  assert.equal(z.status, "Holding");
+  // price coming to rest back inside the zone it bounced from
+  const near = SR.analyze(synth([80, 79, 78, 50, 51, 52, 53, 52, 51, 49.9]), { window: 252 });
+  assert.ok(near.supports.some((x) => x.status === "In play"));
 });
 
 test("minTouches filters single-touch zones", () => {
@@ -119,14 +150,24 @@ test("window limits which pivots are used", () => {
 
 test("diffSnapshots reports new, broken and trend changes", () => {
   const prev = { trend: "Uptrend", rsi_label: "Neutral", macd: "Bullish", ma_cross: null,
-    supports: [{ role: "support", price: 50, touches: 2 }], resistances: [] };
+    supports: [{ price: 50, touches: 2 }], broken: [] };
   const cur = { trend: "Mixed", rsi_label: "Neutral", macd: "Bearish", ma_cross: null, rsi: 45,
-    supports: [{ role: "support", price: 40, touches: 1 }], resistances: [{ role: "resistance", price: 50.2, touches: 2 }] };
+    supports: [{ price: 40, touches: 1 }], broken: [{ price: 50.2, touches: 2 }] };
   const types = SR.diffSnapshots(prev, cur).map((x) => x.type);
   assert.ok(types.includes("new"));
   assert.ok(types.includes("broken"));
   assert.ok(types.includes("trend"));
   assert.ok(types.includes("macd"));
+});
+
+test("diffSnapshots reports a level being reclaimed", () => {
+  const prev = { trend: "Mixed", rsi_label: "Neutral", macd: "Bearish", ma_cross: null,
+    supports: [], broken: [{ price: 60, touches: 3 }] };
+  const cur = { trend: "Mixed", rsi_label: "Neutral", macd: "Bearish", ma_cross: null, rsi: 50,
+    supports: [{ price: 60.3, touches: 3 }], broken: [] };
+  const items = SR.diffSnapshots(prev, cur);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].type, "reclaimed");
 });
 
 test("real TQQQ fixture: sane output for every preset window", () => {
@@ -135,16 +176,24 @@ test("real TQQQ fixture: sane output for every preset window", () => {
   const d = SR.fromPayload(JSON.parse(fs.readFileSync(file, "utf8")));
   for (const w of Object.values(SR.WINDOW_PRESETS)) {
     const res = SR.analyze(d, { window: w });
-    assert.ok(res.supports.length <= 5 && res.resistances.length <= 5);
+    assert.ok(res.supports.length <= 5);
     for (const z of res.zones) {
       assert.ok(z.low <= z.price + 1e-9 && z.price <= z.high + 1e-9, "price inside band");
       assert.ok(z.score >= 0 && z.score <= 100);
-      assert.ok(["Holding", "Tested", "Broken"].includes(z.status));
+      assert.ok(["Holding", "Recently tested", "In play", "Broken"].includes(z.status));
+      assert.ok(["Strong", "Moderate", "Weak"].includes(z.strength));
     }
+    // every level the report shows is a floor: no zone sits clearly above the last close
+    assert.ok(res.supports.every((z) => z.low - res.tol / 2 <= res.price));
+    assert.ok(res.broken.every((z) => z.status === "Broken"));
     const lab = SR.labels(d, res);
     assert.ok(["Uptrend", "Downtrend", "Mixed"].includes(lab.trend.label));
     assert.ok(SR.findings(d, res, lab).length <= 5);
   }
+  const snap = SR.snapshot(d, {});
+  assert.equal(snap.resistances, undefined);
+  assert.ok(Array.isArray(snap.supports) && Array.isArray(snap.broken));
+  assert.deepEqual(SR.diffSnapshots(snap, snap), []);
   const b = SR.benchmark(d, SR.analyze(d, {}));
   assert.ok(b.beta > 2.5 && b.beta < 3.5, `beta ~3, got ${b.beta}`);
 });

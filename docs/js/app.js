@@ -11,8 +11,11 @@
   const fmtDate = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   const WIN_NAMES = { 21: "1 month", 63: "3 months", 126: "6 months", 189: "9 months", 252: "12 months" };
   const winName = (w) => WIN_NAMES[w] || `${w} sessions`;
+  // which optional chart panels are visible; remembered per browser
+  const PANE_DEFAULTS = { vol: true, rsi: true, macd: false, dd: false, rolling: true, profile: false };
+  const OVERLAYS = new Set(["rolling", "profile"]); // drawn inside the price pane, no rebuild needed
 
-  const state = { data: null, opts: SR.normalize({}), res: null, lab: null, charts: {}, windowKey: "12m" };
+  const state = { data: null, opts: SR.normalize({}), res: null, lab: null, charts: {}, windowKey: "12m", panes: { ...PANE_DEFAULTS } };
 
   /* ------------------------------------------------------------ URL <-> settings */
   function readUrl() {
@@ -32,6 +35,10 @@
       const hit = Object.entries(SR.WINDOW_PRESETS).find(([, v]) => v === state.opts.window);
       state.windowKey = hit ? hit[0] : null;
     }
+    try {
+      const saved = JSON.parse(localStorage.getItem("panes") || "null");
+      if (saved) state.panes = { ...PANE_DEFAULTS, ...saved };
+    } catch (e) { /* storage unavailable */ }
   }
 
   function writeUrl() {
@@ -55,7 +62,7 @@
     $("#cluster").value = o.clusterMult; $("#clusterOut").textContent = o.clusterMult.toFixed(2);
     $("#touches").value = o.minTouches; $("#touchesOut").textContent = o.minTouches;
     $("#periodText").textContent = o.period;
-    $$(".pv").forEach((el) => (el.textContent = o.period));
+    $$(".pv, .pv-label").forEach((el) => (el.textContent = o.period));
   }
 
   function bindControls() {
@@ -94,6 +101,15 @@
       state.opts = SR.normalize({ window: state.opts.window });
       update({ keepView: true });
     });
+    $$(".chips input[data-pane]").forEach((cb) => {
+      cb.checked = !!state.panes[cb.dataset.pane];
+      cb.addEventListener("change", () => {
+        state.panes[cb.dataset.pane] = cb.checked;
+        try { localStorage.setItem("panes", JSON.stringify(state.panes)); } catch (e) { /* storage unavailable */ }
+        if (OVERLAYS.has(cb.dataset.pane)) { renderLegends(); renderCharts({ keepView: true }); }
+        else rebuildMainChart();
+      });
+    });
     document.addEventListener("click", (e) => {
       const s = $("#settings");
       if (s.open && !s.contains(e.target)) s.open = false;
@@ -104,6 +120,7 @@
       const next = cur === "dark" ? "light" : "dark";
       document.documentElement.dataset.theme = next;
       try { localStorage.setItem("theme", next); } catch (e) { /* storage unavailable */ }
+      renderLegends();
       renderCharts({ keepView: true });
     });
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderCharts({ keepView: true }));
@@ -116,7 +133,7 @@
     $("#dlCsv").addEventListener("click", downloadCsv);
     $("#dlPng").addEventListener("click", () => {
       const a = document.createElement("a");
-      a.href = state.charts.main.toPNG(`TQQQ support & resistance — ${winName(state.opts.window)} window — data as of ${state.data.meta.as_of}`);
+      a.href = state.charts.main.toPNG(`TQQQ support levels — ${winName(state.opts.window)} window — data as of ${state.data.meta.as_of}`);
       a.download = `tqqq-support-${state.data.meta.as_of}-${state.opts.window}d.png`;
       a.click();
     });
@@ -160,16 +177,17 @@
   function renderKpis() {
     const d = state.data, r = state.res, l = state.lab, i = r.end;
     const chg = (d.close[i] / d.close[i - 1] - 1) * 100;
-    const s = r.supports[0], res = r.resistances[0];
+    const s = r.supports[0];
+    const strongest = [...r.supports].sort((a, b) => b.score - a.score)[0];
     const fb = r.fallbacks[0];
     $("#kpis").innerHTML = [
       kpi("Last close", money(d.close[i]), `<span class="${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "▲" : "▼"} ${pct(chg, 2)}</span> on the day`),
       kpi("Trend", `<span class="pill ${l.trend.label}">${l.trend.label}</span>`,
         l.maCross ? `${l.maCross.type} ${fmtDate(l.maCross.date)}` : "50 vs 200-day"),
-      s ? kpi("Nearest support", money(s.price), `${s.atPrice ? "Price is in the zone" : pct(s.distancePct) + " away"} · ${s.touches} touch${s.touches > 1 ? "es" : ""}`)
+      s ? kpi("Nearest support", money(s.price), `${s.inZone ? "Price is in the zone" : pct(s.distancePct) + " away"} · ${s.touches} touch${s.touches > 1 ? "es" : ""}`)
         : kpi("Nearest support", fb ? money(fb.price) : "–", fb ? `Fallback: ${fb.label}` : "None in window"),
-      res ? kpi("Nearest resistance", money(res.price), `${res.atPrice ? "Price is in the zone" : pct(res.distancePct) + " away"} · ${res.touches} touch${res.touches > 1 ? "es" : ""}`)
-        : kpi("Nearest resistance", "–", "None above in window"),
+      strongest ? kpi("Strongest support", money(strongest.price), `${strongest.strength} · score ${strongest.score}/100 · ${strongest.id}`)
+        : kpi("Strongest support", "–", "None in window"),
       kpi("RSI (14)", l.rsi.value.toFixed(0), l.rsi.label + ` · MACD ${l.macd.label.toLowerCase()}`),
       kpi("From 12-month high", `<span class="down">${pct(l.drawdown, 1)}</span>`, `High ${money(l.high12m)}`),
     ].join("");
@@ -177,28 +195,26 @@
 
   function renderTable() {
     const r = state.res, d = state.data;
-    const row = (z) => {
-      const statusNote = z.status === "Broken" ? `<span class="sub-cell">was ${z.origin}</span>` : "";
-      return `<tr>
-        <td><span class="lvl ${z.role}">${z.role === "support" ? "Support" : "Resistance"}</span></td>
+    const row = (z) => `<tr>
+        <td><span class="lvl support">${z.id}</span></td>
         <td class="num"><b>${money(z.price)}</b></td>
-        <td class="num">${z.high - z.low < 0.005 ? '<span class="muted">single low/high</span>' : `${money(z.low)}–${money(z.high).slice(1)}`}</td>
-        <td class="num">${z.atPrice ? "in zone" : pct(z.distancePct)}</td>
+        <td class="num">${z.high - z.low < 0.005 ? '<span class="muted">single low</span>' : `${money(z.low)}–${money(z.high).slice(1)}`}</td>
+        <td class="num">${z.inZone ? "in zone" : pct(z.distancePct)}</td>
         <td class="num">${z.touches}</td>
         <td>${fmtDate(z.date)}</td>
-        <td><span class="bar" aria-hidden="true"><i style="width:${z.score}%"></i></span>${z.score}</td>
-        <td><span class="status ${z.status}">${z.status}</span>${statusNote}</td>
+        <td class="strength"><span class="bar" aria-hidden="true"><i class="t${z.strength}" style="width:${z.score}%"></i></span><span class="tier">${z.strength}</span> <span class="muted">${z.score}</span></td>
+        <td><span class="status ${z.status.replace(/ /g, "-")}">${z.status}</span>${z.brokeBefore ? '<span class="sub-cell">broke once before</span>' : ""}</td>
       </tr>`;
-    };
-    const res = [...r.resistances].sort((a, b) => b.price - a.price);
-    const sup = [...r.supports].sort((a, b) => b.price - a.price);
-    let html = `<tr class="group"><td colspan="8">Resistance above price (${res.length})</td></tr>`;
-    html += res.length ? res.map(row).join("") : `<tr><td colspan="8" class="muted">No resistance zones above the price in this window — price is near the top of its range.</td></tr>`;
-    html += `<tr class="price-row"><td>Last close</td><td class="num">${money(r.price)}</td><td class="num muted">ATR ${money(r.atr)}</td><td colspan="5" class="muted">${d.dates[r.end]} · cluster distance ${money(r.tol)}</td></tr>`;
-    html += `<tr class="group"><td colspan="8">Support below price (${sup.length})</td></tr>`;
-    html += sup.length ? sup.map(row).join("") : "";
+    const sup = r.supports; // already nearest-first
+    let html = `<tr class="price-row"><td>Last close</td><td class="num">${money(r.price)}</td><td class="num muted">ATR ${money(r.atr)}</td><td colspan="5" class="muted">${d.dates[r.end]} · zones are ${money(r.tol)} wide (${r.opts.clusterMult} × ATR)</td></tr>`;
+    html += sup.length ? sup.map(row).join("")
+      : `<tr><td colspan="8" class="muted">No confirmed support zone in a ${winName(r.opts.window)} window — price has not put in enough swing lows. Try a longer window.</td></tr>`;
     if (r.fallbacks.length) {
-      html += r.fallbacks.map((f) => `<tr><td><span class="lvl support">Fallback</span></td><td class="num">${money(f.price)}</td><td colspan="6" class="muted">${f.label} — too few confirmed swing lows in a ${winName(state.opts.window)} window. Try a longer window.</td></tr>`).join("");
+      html += r.fallbacks.map((f) => `<tr><td><span class="lvl fallback">Fallback</span></td><td class="num">${money(f.price)}</td><td colspan="6" class="muted">${f.label} — shown because this window has fewer than two confirmed support zones.</td></tr>`).join("");
+    }
+    if (r.broken.length) {
+      const list = r.broken.slice(-3).reverse().map((z) => money(z.price)).join(", ");
+      html += `<tr class="foot-row"><td colspan="8" class="muted">${r.broken.length} zone${r.broken.length > 1 ? "s" : ""} in this window broke (price closed below ${list}) and ${r.broken.length > 1 ? "are" : "is"} no longer counted as support.</td></tr>`;
     }
     $("#levels tbody").innerHTML = html;
   }
@@ -213,13 +229,13 @@
         `<span class="pill ${t.label}">${t.label}</span>`,
         `Price is ${sign(c - d.sma50[i])} the 50-day and ${sign(c - d.sma200[i])} the 200-day; the 50-day is ${t.slopePct >= 0 ? "rising" : "falling"} (${pct(t.slopePct)} over 20 sessions)${l.maCross ? `. Last ${l.maCross.type.toLowerCase()}: ${fmtDate(l.maCross.date)}` : ""}.`],
       ["RSI", "14-day", l.rsi.value.toFixed(1), l.rsi.label,
-        "Above 70 means the recent rise is stretched; below 30 means the fall is stretched."],
+        "Above 70 means the recent rise is stretched; below 30 means the fall is stretched. Support tends to hold better when RSI is already low."],
       ["MACD", "12, 26, 9", `${l.macd.value.toFixed(2)} / ${l.macd.signal.toFixed(2)}`, `${l.macd.label}${l.macd.crossDate ? ` since ${fmtDate(l.macd.crossDate)}` : ""}`,
         `Momentum is ${l.macd.hist >= 0 ? "building" : "fading"}: the MACD line is ${l.macd.hist >= 0 ? "above" : "below"} its signal line.`],
       ["Bollinger Bands", "20-day, 2 std dev", `${money(d.bb_lower[i])} – ${money(d.bb_upper[i])}`, l.bollinger.label,
         `Price sits at ${(l.bollinger.position * 100).toFixed(0)}% of its normal 20-day range (0% = lower band, 100% = upper band).`],
       ["ATR", "14-day", `${money(l.atr.value)} (${l.atr.pct.toFixed(1)}%)`, `Moves about ${l.atr.pct.toFixed(1)}% a day`,
-        "The typical daily range. Used to size support zones and to judge stop distances."],
+        "The typical daily range. It sets how wide the support zones are and how far below a level a stop would sit."],
       ["Volume vs. average", "20-day average", `${compact(d.volume[i])} vs ${compact(d.vol_avg20[i])}`, l.volume.label,
         "Heavy volume at a support test suggests real buying behind the bounce."],
     ];
@@ -231,8 +247,8 @@
     if (!ch || !ch.items) { ul.innerHTML = `<li class="muted">No comparison available yet.</li>`; return; }
     const tags = { new: "New", broken: "Broken", reclaimed: "Reclaimed", dropped: "Dropped", trend: "Trend", rsi: "RSI", macd: "MACD", cross: "Cross" };
     ul.innerHTML = ch.items.length
-      ? ch.items.map((x) => `<li><span class="tag">${tags[x.type] || x.type}</span><span>${esc(x.text)}</span></li>`).join("")
-      : `<li class="muted">No changes to the top levels, trend or momentum labels.</li>`;
+      ? ch.items.map((x) => `<li><span class="tag ${x.type}">${tags[x.type] || x.type}</span><span>${esc(x.text)}</span></li>`).join("")
+      : `<li class="muted">No changes to the support levels, trend or momentum labels.</li>`;
     $("#changesNote").textContent = ch.previous
       ? `${fmtDate(ch.as_of)} compared with ${fmtDate(ch.previous)}, using the default settings (12-month window, 3-day swings). Levels within 1.5% of each other count as the same level.`
       : "";
@@ -250,14 +266,14 @@
     const pivots = state.res.pivots;
     const tags = [];
     if (pivots.lows.includes(i)) tags.push("Swing low");
-    if (pivots.highs.includes(i)) tags.push("Swing high");
     if (pivots.pendingLows.includes(i)) tags.push("Pending swing low");
-    if (pivots.pendingHighs.includes(i)) tags.push("Pending swing high");
+    const zone = state.res.supports.find((z) => d.low[i] <= z.high + state.res.tol / 2 && d.high[i] >= z.low - state.res.tol / 2);
     const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
     return `<div class="d">${fmtDate(d.dates[i])}${tags.length ? ` · ${tags.join(", ")}` : ""}</div><table>
       ${row("Open / Close", `${money(d.open[i])} / ${money(d.close[i])}`)}
       ${row("High / Low", `${money(d.high[i])} / ${money(d.low[i])}`)}
       ${row("Change", `<span class="${chg >= 0 ? "up" : "down"}">${pct(chg, 2)}</span>`)}
+      ${zone ? row(`${sw("--support")}In support zone`, `${zone.id} ${money(zone.price)}`) : ""}
       ${row(`${sw("--rolling")}${state.opts.period}-day low`, money(state.res.rollingLow[i]))}
       ${row(`${sw("--sma20")}20 / ${sw("--sma50")}50 / ${sw("--sma200")}200-day`, `${money(d.sma20[i])} / ${money(d.sma50[i])} / ${money(d.sma200[i])}`)}
       ${row("Volume", `${compact(d.volume[i])} (${(d.volume[i] / d.vol_avg20[i]).toFixed(1)}× avg)`)}
@@ -274,17 +290,9 @@
       for (const k of keys) for (let i = a; i <= b; i++) { const v = d[k][i]; if (v != null) { if (v < mn) mn = v; if (v > mx) mx = v; } }
       return [mn, mx];
     };
-    const panes = [
-      {
-        id: "price", height: 440, mobileHeight: 300, padY: 0.09, format: (v) => "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(v >= 10 ? 1 : 2)),
-        range: (a, b) => {
-          const [mn, mx] = extent(["low", "high"])(a, b);
-          return [mn, mx];
-        },
-        draw: drawPricePane,
-      },
-      {
-        id: "vol", title: "Volume", height: 90, mobileHeight: 64, fixed: true, padY: 0,
+    const optional = {
+      vol: {
+        id: "vol", title: "Volume", height: 84, mobileHeight: 60, fixed: true, padY: 0,
         format: compact, ticks: (lo, hi) => [hi * 0.5],
         range: (a, b) => [0, extent(["volume"])(a, b)[1] * 1.05],
         draw: (ctx, S) => {
@@ -293,103 +301,125 @@
           draw.line(ctx, S, d.vol_avg20, css("--sma20"), 1.5);
         },
       },
-      {
-        id: "rsi", title: "RSI (14)", height: 90, mobileHeight: 64, fixed: true,
+      rsi: {
+        id: "rsi", title: "RSI (14) — over 70 stretched up, under 30 stretched down", height: 84, mobileHeight: 60, fixed: true,
         format: (v) => v.toFixed(0), ticks: () => [30, 50, 70],
         range: () => [0, 100],
         draw: (ctx, S) => {
-          draw.hband(ctx, S, 70, 100, withAlpha(css("--resistance"), 0.08));
+          draw.hband(ctx, S, 70, 100, withAlpha(css("--danger"), 0.08));
           draw.hband(ctx, S, 0, 30, withAlpha(css("--support"), 0.08));
           draw.line(ctx, S, d.rsi14, css("--sma20"), 1.5);
         },
       },
-      {
-        id: "macd", title: "MACD (12, 26, 9)", height: 100, mobileHeight: 70, format: (v) => v.toFixed(1),
+      macd: {
+        id: "macd", title: "MACD (12, 26, 9) — momentum", height: 96, mobileHeight: 68, format: (v) => v.toFixed(1),
         range: (a, b) => { const [mn, mx] = extent(["macd", "macd_signal", "macd_hist"])(a, b); const m = Math.max(Math.abs(mn), Math.abs(mx)); return [-m, m]; },
         draw: (ctx, S) => {
-          draw.bars(ctx, S, d.macd_hist, (i, v) => withAlpha(css(v >= 0 ? "--support" : "--resistance"), 0.55));
+          draw.bars(ctx, S, d.macd_hist, (i, v) => withAlpha(css(v >= 0 ? "--support" : "--danger"), 0.55));
           draw.line(ctx, S, d.macd, css("--sma20"), 1.5);
           draw.line(ctx, S, d.macd_signal, css("--sma50"), 1.5);
         },
       },
-      {
-        id: "dd", title: "% below 12-month high", height: 80, mobileHeight: 60, fixed: true, gap: 0,
+      dd: {
+        id: "dd", title: "% below the 12-month high", height: 78, mobileHeight: 58, fixed: true,
         format: (v) => v.toFixed(0) + "%",
         range: (a, b) => [Math.min(-5, extent(["drawdown"])(a, b)[0] * 1.08), 0],
         draw: (ctx, S) => {
-          draw.area(ctx, S, d.drawdown, 0, withAlpha(css("--resistance"), 0.12));
-          draw.line(ctx, S, d.drawdown, css("--resistance"), 1.5);
+          draw.area(ctx, S, d.drawdown, 0, withAlpha(css("--danger"), 0.12));
+          draw.line(ctx, S, d.drawdown, css("--danger"), 1.5);
         },
       },
+    };
+    const panes = [
+      {
+        id: "price", height: 460, mobileHeight: 320, padY: 0.09, format: (v) => "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(v >= 10 ? 1 : 2)),
+        range: (a, b) => extent(["low", "high"])(a, b),
+        draw: drawPricePane,
+      },
+      ...Object.keys(optional).filter((k) => state.panes[k]).map((k) => optional[k]),
     ];
-    const c = new StackChart($("#mainChart"), { panes, dates: d.dates, tooltip: mainTooltip, rightPad: 4 });
-    c.canvas.setAttribute("aria-label", "Candlestick chart of TQQQ with support and resistance zones, and volume, RSI, MACD and drawdown panels. The levels table below lists the same zones.");
+    panes[panes.length - 1].gap = 0;
+    const c = new StackChart($("#mainChart"), {
+      panes, dates: d.dates, tooltip: mainTooltip, rightPad: 4,
+      dimBefore: () => state.res.start,
+    });
+    c.canvas.setAttribute("aria-label", "Candlestick chart of TQQQ with shaded support zones and optional volume, RSI, MACD and drawdown panels. The levels table below lists the same zones.");
     return c;
+  }
+
+  function rebuildMainChart() {
+    const old = state.charts.main;
+    const view = old && old.view;
+    old && old.destroy();
+    state.charts.main = buildMainChart();
+    const end = state.data.dates.length - 1;
+    if (view) state.charts.main.setView(view.from, view.to, [0, end]);
+    else renderCharts();
   }
 
   function drawPricePane(ctx, S) {
     const d = state.data, r = state.res;
-    const sup = css("--support"), resC = css("--resistance");
-    // 1. volume-by-price profile on the right
-    const prof = SR.volumeProfile(d, r, 32);
-    const maxV = Math.max(...prof.map((p) => p.volume));
-    const profW = (S.right - S.left) * (S.mobile ? 0.16 : 0.13);
-    ctx.fillStyle = withAlpha(css("--text-muted"), 0.16);
-    for (const p of prof) {
-      const y1 = S.y(p.high), y2 = S.y(p.low);
-      const w = (p.volume / maxV) * profW;
-      ctx.fillRect(S.right - w, y1 + 1, w, Math.max(1, y2 - y1 - 2));
-    }
-    // 2. zones (support + resistance shown in the table), strongest drawn darkest
-    const shown = [...r.supports, ...r.resistances];
-    const labels = [];
-    // on small screens only the two nearest levels on each side get a text label
-    const labelled = new Set(S.mobile ? [...r.supports.slice(0, 2), ...r.resistances.slice(0, 2)] : shown);
-    shown.forEach((z) => {
-      const col = z.role === "support" ? sup : resC;
-      const x0 = Math.max(S.left, S.x(z.firstIdx) - S.barW / 2);
-      const y1 = S.y(z.high + r.tol * 0.15), y2 = S.y(z.low - r.tol * 0.15);
-      ctx.fillStyle = withAlpha(col, 0.06 + 0.22 * (z.score / 100));
-      ctx.fillRect(x0, y1, S.right - x0, Math.max(3, y2 - y1));
-      if (z.status === "Broken") {
-        ctx.strokeStyle = col; ctx.lineWidth = 1.25; ctx.setLineDash([5, 4]);
-        ctx.strokeRect(x0 + 0.5, Math.round(y1) + 0.5, S.right - x0 - 1, Math.max(3, Math.round(y2 - y1)));
-        ctx.setLineDash([]);
-      } else {
-        ctx.strokeStyle = withAlpha(col, 0.9); ctx.lineWidth = 1.5;
-        const ym = Math.round(S.y(z.price)) + 0.5;
-        ctx.beginPath(); ctx.moveTo(x0, ym); ctx.lineTo(S.right, ym); ctx.stroke();
+    const sup = css("--support");
+    const half = r.tol / 2;
+    // 1. optional volume-by-price profile, drawn behind everything on the right
+    if (state.panes.profile) {
+      const prof = SR.volumeProfile(d, r, 32);
+      const maxV = Math.max(...prof.map((p) => p.volume));
+      const profW = (S.right - S.left) * (S.mobile ? 0.16 : 0.12);
+      ctx.fillStyle = withAlpha(css("--text-muted"), 0.18);
+      for (const p of prof) {
+        const y1 = S.y(p.high), y2 = S.y(p.low);
+        const w = (p.volume / maxV) * profW;
+        ctx.fillRect(S.right - w, y1 + 1, w, Math.max(1, y2 - y1 - 2));
       }
-      if (labelled.has(z)) labels.push({ y: S.y(z.price), text: `${z.role === "support" ? "S" : "R"} ${money(z.price)}`, col });
-    });
+    }
+    // 2. support zones: full-width bands, opacity stepped by strength so the
+    //    strong ones read at a glance instead of blending into each other
+    const labels = [];
+    const alphaFor = { Strong: 0.22, Moderate: 0.13, Weak: 0.07 };
+    for (const z of r.supports) {
+      const y1 = S.y(z.high + half), y2 = S.y(z.low - half);
+      const h = Math.max(4, y2 - y1);
+      ctx.fillStyle = withAlpha(sup, alphaFor[z.strength]);
+      ctx.fillRect(S.left, y1, S.right - S.left, h);
+      // centre line at the zone price
+      ctx.strokeStyle = withAlpha(sup, 0.85);
+      ctx.lineWidth = z.strength === "Strong" ? 2 : 1.25;
+      const ym = Math.round(S.y(z.price)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(S.left, ym); ctx.lineTo(S.right, ym); ctx.stroke();
+      labels.push({ y: S.y(z.price), text: `${z.id} ${money(z.price)}`, col: sup });
+    }
     // fallback levels for thin windows
     r.fallbacks.forEach((f) => {
       draw.hline(ctx, S, f.price, sup, [2, 3], 1.25);
-      labels.push({ y: S.y(f.price), text: `${f.label} ${money(f.price)}`, col: sup });
+      labels.push({ y: S.y(f.price), text: money(f.price), col: sup });
     });
-    // 3. moving averages & rolling low
+    // 3. moving averages & rolling low (the 20-day is thinner: it is context, not a level)
     draw.line(ctx, S, d.sma200, css("--sma200"), 2);
     draw.line(ctx, S, d.sma50, css("--sma50"), 2);
-    draw.line(ctx, S, d.sma20, css("--sma20"), 1.5);
-    draw.step(ctx, S, r.rollingLow.map((v, i) => (i >= r.start ? v : null)), css("--rolling"), 1.5);
+    draw.line(ctx, S, d.sma20, css("--sma20"), 1.25);
+    if (state.panes.rolling) {
+      draw.step(ctx, S, r.rollingLow.map((v, i) => (i >= r.start ? v : null)), withAlpha(css("--rolling"), 0.75), 1.25);
+    }
     // 4. candles
     draw.candles(ctx, S, d, css("--candle"), css("--candle"));
-    // 5. swing markers
+    // 5. swing-low markers
     const off = Math.max(8, S.barW * 0.3 + 6);
-    const size = S.mobile ? 4 : 5;
-    r.pivots.lows.forEach((i) => draw.triangle(ctx, S.x(i), S.y(d.low[i]) + off, "up", sup, false, size));
-    r.pivots.highs.forEach((i) => draw.triangle(ctx, S.x(i), S.y(d.high[i]) - off, "down", resC, false, size));
+    const size = S.mobile ? 4 : 4.5;
+    const used = new Set(r.supports.flatMap((z) => z.pivots)); // lows that built one of S1…S5
+    r.pivots.lows.forEach((i) => draw.triangle(ctx, S.x(i), S.y(d.low[i]) + off, "up",
+      used.has(i) ? sup : withAlpha(sup, 0.34), false, used.has(i) ? size : size - 1));
     r.pivots.pendingLows.forEach((i) => draw.triangle(ctx, S.x(i), S.y(d.low[i]) + off, "up", sup, true, size));
-    r.pivots.pendingHighs.forEach((i) => draw.triangle(ctx, S.x(i), S.y(d.high[i]) - off, "down", resC, true, size));
     // 6. window start marker
     if (r.start > S.i0) {
       const x = Math.round(S.x(r.start) - S.barW / 2) + 0.5;
-      ctx.strokeStyle = css("--axis"); ctx.setLineDash([2, 3]);
+      ctx.strokeStyle = css("--axis"); ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
       ctx.beginPath(); ctx.moveTo(x, S.top); ctx.lineTo(x, S.bottom); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = css("--text-muted"); ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText("window starts", x + 4, S.top + 3);
     }
-    // 7. labels on the right edge, de-overlapped, plus last price tag
-    const lastY = S.y(r.price);
-    labels.push({ y: lastY, text: money(r.price), col: css("--text-primary"), last: true });
+    // 7. labels on the right edge, de-overlapped, plus the last price tag
+    labels.push({ y: S.y(r.price), text: money(r.price), col: css("--text-primary"), last: true });
     labels.sort((a, b) => a.y - b.y);
     for (let k = 1; k < labels.length; k++) if (labels[k].y - labels[k - 1].y < 17) labels[k].y = labels[k - 1].y + 17;
     const over = labels.length ? labels[labels.length - 1].y - (S.bottom - 9) : 0;
@@ -399,7 +429,6 @@
 
   function buildBenchChart() {
     const d = state.data;
-    const base = { t: null, q: null };
     const idx = { t: [], q: [] };
     const recompute = () => {
       const s = state.res.start;
@@ -431,7 +460,6 @@
     });
     c.canvas.setAttribute("aria-label", "Line chart comparing growth of $100 in TQQQ and QQQ over the selected window.");
     c.recompute = recompute;
-    void base;
     return c;
   }
 
@@ -448,25 +476,25 @@
     const runs = SR.compareWindows(state.data, state.opts);
     if (!state.charts.cmp) {
       state.charts.cmp = new LevelDotChart($("#cmpChart"), {
-        onHoverText: (z, w) => `<div class="d">${z.role === "support" ? "Support" : "Resistance"} ${money(z.price)}</div><table>
+        onHoverText: (z, w) => `<div class="d">Support ${money(z.price)}</div><table>
           <tr><td>Window</td><td>${winName(w)}</td></tr>
-          <tr><td>Band</td><td>${money(z.low)}–${money(z.high)}</td></tr>
-          <tr><td>Touches</td><td>${z.touches}</td></tr>
-          <tr><td>Strength</td><td>${z.score}</td></tr>
+          <tr><td>Zone range</td><td>${money(z.low)}–${money(z.high)}</td></tr>
+          <tr><td>Times held</td><td>${z.touches}</td></tr>
+          <tr><td>Strength</td><td>${z.strength} (${z.score})</td></tr>
           <tr><td>Found in</td><td>${z.windowsSeen} of 4 windows</td></tr></table>`,
       });
-      state.charts.cmp.canvas.setAttribute("aria-label", "Dot chart of the top support and resistance levels for 1, 3, 6 and 12-month windows.");
+      state.charts.cmp.canvas.setAttribute("aria-label", "Dot chart of the top support levels for 1, 3, 6 and 12-month windows.");
     }
     state.charts.cmp.setData(runs, state.res.price, money);
     // summary: recurring levels, deduplicated
     const seen = [];
-    for (const r of runs) for (const z of [...r.res.supports, ...r.res.resistances]) {
+    for (const r of runs) for (const z of r.res.supports) {
       if (z.windowsSeen >= 3 && !seen.some((s) => Math.abs(s.price - z.price) <= state.res.tol)) seen.push(z);
     }
     seen.sort((a, b) => b.price - a.price);
     $("#cmpSummary").innerHTML = seen.length
-      ? `Levels found in 3 or more windows: ${seen.map((z) => `<b>${money(z.price)}</b> (${z.role})`).join(", ")}.`
-      : "No level appears in 3 or more windows right now — treat the levels as timeframe-specific.";
+      ? `Found in 3 or more windows: ${seen.map((z) => `<b>${money(z.price)}</b>`).join(", ")}. These are the most dependable floors on the chart.`
+      : "No level appears in 3 or more windows right now — treat the levels below as specific to the window you picked.";
   }
 
   function renderCharts({ keepView } = {}) {
@@ -474,7 +502,7 @@
     const main = state.charts.main;
     const end = d.dates.length - 1;
     // the chart shows the window (plus a little context); users can pan back to the full 2 years
-    const lead = Math.round(r.opts.window * 0.04);
+    const lead = Math.round(r.opts.window * 0.06);
     const from = Math.max(0, r.start - lead);
     if (keepView && main.view) main.render(); else main.setView(from, end, [0, end]);
     const b = state.charts.bench;
@@ -484,20 +512,20 @@
   }
 
   function renderLegends() {
-    const tri = (v) => `border-bottom-color:${css(v)}`;
     legend($("#legend"), [
+      ["box strong", `background:${withAlpha(css("--support"), 0.30)};border:1px solid ${css("--support")}`, "Support zone (darker = stronger)"],
+      ["tri", `border-bottom-color:${css("--support")}`, "Swing low that built a level"],
+      ["tri faint", `border-bottom-color:${css("--support")}`, "Other swing low"],
+      ["tri hollow", `border-bottom-color:${css("--support")}`, "Pending (not yet confirmed)"],
       ["candle", "", "Up day"], ["candle fill", "", "Down day"],
-      ["box", `background:${withAlpha(css("--support"), 0.35)}`, "Support zone"],
-      ["box", `background:${withAlpha(css("--resistance"), 0.35)}`, "Resistance zone"],
-      ["tri", tri("--support"), "Swing low"], ["tri down", `border-top-color:${css("--resistance")}`, "Swing high"],
-      ["", `border-color:${css("--rolling")}`, `${state.opts.period}-day rolling low`],
+      ...(state.panes.rolling ? [["", `border-color:${css("--rolling")}`, `${state.opts.period}-day rolling low`]] : []),
       ["", `border-color:${css("--sma20")}`, "20-day avg"], ["", `border-color:${css("--sma50")}`, "50-day avg"],
       ["", `border-color:${css("--sma200")}`, "200-day avg"],
-      ["box", `background:${withAlpha(css("--text-muted"), 0.3)}`, "Volume at price"],
     ]);
     legend($("#cmpLegend"), [
-      ["dot", `background:${css("--support")}`, "Support"], ["dot", `background:${css("--resistance")}`, "Resistance"],
-      ["", `border-color:${css("--text-secondary")};border-top-style:dashed`, "Last close"],
+      ["dot", `background:${css("--support")}`, "Support level (size = strength)"],
+      ["dot ring", `border-color:${css("--support")}`, "Found in 3+ windows"],
+      ["dash", `border-color:${css("--text-secondary")}`, "Last close"],
     ]);
     legend($("#benchLegend"), [["", `border-color:${css("--accent")}`, "TQQQ"], ["", `border-color:${css("--qqq")}`, "QQQ"]]);
   }
@@ -506,25 +534,25 @@
   function downloadCsv() {
     const r = state.res, d = state.data;
     const lines = [
-      `# TQQQ support & resistance, data as of ${d.meta.as_of}, window ${r.opts.window} sessions, swing period ${r.opts.period}, cluster ${r.opts.clusterMult}xATR, min touches ${r.opts.minTouches}`,
-      "role,origin,zone_price,band_low,band_high,distance_pct,touches,last_test,first_seen,strength,status,volume_vs_avg",
-      ...[...r.resistances, ...r.supports].map((z) => [z.role, z.origin, z.price.toFixed(2), z.low.toFixed(2), z.high.toFixed(2),
-        z.distancePct.toFixed(2), z.touches, z.date, z.firstDate, z.score, z.status, z.volumeRatio.toFixed(2)].join(",")),
+      `# TQQQ support levels, data as of ${d.meta.as_of}, window ${r.opts.window} sessions, swing period ${r.opts.period}, cluster ${r.opts.clusterMult}xATR, min touches ${r.opts.minTouches}`,
+      "level,zone_price,zone_low,zone_high,distance_pct,touches,last_test,first_seen,strength_score,strength,status,volume_vs_avg",
+      ...r.supports.map((z) => [z.id, z.price.toFixed(2), z.low.toFixed(2), z.high.toFixed(2),
+        z.distancePct.toFixed(2), z.touches, z.date, z.firstDate, z.score, z.strength, z.status, z.volumeRatio.toFixed(2)].join(",")),
       "",
-      "date,open,high,low,close,volume,rolling_low,sma20,sma50,sma200,rsi14,macd,macd_signal,bb_upper,bb_lower,atr14,drawdown_pct,swing",
+      "date,open,high,low,close,volume,rolling_low,sma20,sma50,sma200,rsi14,macd,macd_signal,bb_upper,bb_lower,atr14,drawdown_pct,swing_low",
     ];
-    const lows = new Set(r.pivots.lows), highs = new Set(r.pivots.highs);
+    const lows = new Set(r.pivots.lows);
     const f = (v, n = 4) => (v == null ? "" : (+v).toFixed(n));
     for (let i = r.start; i <= r.end; i++) {
       lines.push([d.dates[i], f(d.open[i]), f(d.high[i]), f(d.low[i]), f(d.close[i]), d.volume[i], f(r.rollingLow[i]),
         f(d.sma20[i]), f(d.sma50[i]), f(d.sma200[i]), f(d.rsi14[i], 2), f(d.macd[i]), f(d.macd_signal[i]),
         f(d.bb_upper[i]), f(d.bb_lower[i]), f(d.atr14[i]), f(d.drawdown[i], 2),
-        lows.has(i) ? "low" : highs.has(i) ? "high" : ""].join(","));
+        lows.has(i) ? "yes" : ""].join(","));
     }
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `tqqq-levels-${d.meta.as_of}-${r.opts.window}d.csv`;
+    a.download = `tqqq-support-${d.meta.as_of}-${r.opts.window}d.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }

@@ -1,12 +1,16 @@
 /*
- * TQQQ support & resistance method — the single implementation used by the page,
+ * TQQQ support method — the single implementation used by the page,
  * the daily snapshot job (Node) and the unit tests.
  *
  * Steps (see the Method panel on the page):
- *   1. Swing lows / highs confirmed by `period` sessions on each side (default 3).
+ *   1. Swing lows confirmed by `period` sessions on each side (default 3).
  *   2. Rolling `period`-session low (step line).
- *   3. Cluster pivots within clusterMult × ATR(14) into zones (volume-weighted price).
+ *   3. Cluster swing lows within clusterMult × ATR(14) into zones (volume-weighted price).
  *   4. Score zones: touches 40%, recency 30%, volume 20%, bounce 10%.
+ *
+ * The report covers support only. Swing highs / resistance are deliberately not
+ * part of the output: the brief asks for support levels, and leaving overhead
+ * levels off keeps the chart readable.
  */
 (function (root, factory) {
   const api = factory();
@@ -21,10 +25,15 @@
   };
   const WINDOW_PRESETS = { "1m": 21, "3m": 63, "6m": 126, "9m": 189, "12m": 252 };
   const WEIGHTS = { touches: 0.4, recency: 0.3, volume: 0.2, bounce: 0.1 };
+  // plain-language buckets for the 0-100 strength score
+  const TIERS = [[70, "Strong"], [40, "Moderate"], [0, "Weak"]];
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const last = (a) => a[a.length - 1];
   const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : NaN);
+
+  /** "Strong" / "Moderate" / "Weak" for a 0-100 strength score. */
+  const strengthTier = (score) => TIERS.find(([min]) => score >= min)[1];
 
   /** Normalise user settings into valid ranges. `window` may be "6m" or a number of sessions. */
   function normalize(opts = {}) {
@@ -89,7 +98,7 @@
   /**
    * Core analysis over the selected window.
    * data = { dates, open, high, low, close, volume, atr14, ... } (full history arrays)
-   * Returns zones, pivots and helper series restricted to the window.
+   * Returns support zones, swing lows and helper series restricted to the window.
    */
   function analyze(data, opts) {
     const o = normalize(opts);
@@ -99,48 +108,40 @@
     const price = data.close[endIdx];
     const atr = data.atr14[endIdx] ?? mean(data.high.slice(start).map((h, j) => h - data.low[start + j]));
     const tol = o.clusterMult * atr;
+    const half = tol / 2;
     const avgVol = mean(data.volume.slice(start));
 
     const lowP = findPivots(data.low, o.period, start, "low");
-    const highP = findPivots(data.high, o.period, start, "high");
 
-    const build = (idx, kind) => {
-      const prices = kind === "low" ? data.low : data.high;
-      return cluster(idx, prices, data.volume, tol).map((z) => {
-        const members = z.members.sort((a, b) => a.i - b.i);
-        const lo = Math.min(...members.map((m) => m.p));
-        const hi = Math.max(...members.map((m) => m.p));
-        const lastI = last(members).i;
-        // bounce: best move away from the pivot within the look-ahead, in % of pivot price
-        const bounces = members.map((m) => {
-          const end = Math.min(endIdx, m.i + o.bounceLookahead);
-          if (end <= m.i) return 0;
-          const seg = kind === "low" ? data.high.slice(m.i + 1, end + 1) : data.low.slice(m.i + 1, end + 1);
-          const ext = kind === "low" ? Math.max(...seg) : Math.min(...seg);
-          return Math.abs(ext - m.p) / m.p * 100;
-        });
-        // later tests: bars after the last pivot that entered the band (with tolerance) without being pivots
-        const bandLo = lo - tol / 2, bandHi = hi + tol / 2;
-        let lastTest = lastI, closedThrough = false;
-        for (let i = lastI + 1; i <= endIdx; i++) {
-          if (data.low[i] <= bandHi && data.high[i] >= bandLo) lastTest = i;
-          if (kind === "low" ? data.close[i] < lo - tol / 2 : data.close[i] > hi + tol / 2) closedThrough = true;
-        }
-        return {
-          origin: kind === "low" ? "support" : "resistance",
-          price: z.price, low: lo, high: hi,
-          touches: members.length,
-          pivots: members.map((m) => m.i),
-          firstIdx: members[0].i, lastPivotIdx: lastI, lastTestIdx: lastTest,
-          avgVolume: mean(members.map((m) => m.v)),
-          bounce: mean(bounces),
-          closedThrough,
-        };
+    let zones = cluster(lowP.confirmed, data.low, data.volume, tol).map((z) => {
+      const members = z.members.sort((a, b) => a.i - b.i);
+      const lo = Math.min(...members.map((m) => m.p));
+      const hi = Math.max(...members.map((m) => m.p));
+      const lastI = last(members).i;
+      // bounce: best move up away from the low within the look-ahead, in % of the low
+      const bounces = members.map((m) => {
+        const end = Math.min(endIdx, m.i + o.bounceLookahead);
+        if (end <= m.i) return 0;
+        const ext = Math.max(...data.high.slice(m.i + 1, end + 1));
+        return Math.abs(ext - m.p) / m.p * 100;
       });
-    };
-
-    let zones = [...build(lowP.confirmed, "low"), ...build(highP.confirmed, "high")]
-      .filter((z) => z.touches >= o.minTouches);
+      // later tests: bars after the last swing low that entered the band (with tolerance)
+      const bandLo = lo - half, bandHi = hi + half;
+      let lastTest = lastI, brokeBefore = false;
+      for (let i = lastI + 1; i <= endIdx; i++) {
+        if (data.low[i] <= bandHi && data.high[i] >= bandLo) lastTest = i;
+        if (data.close[i] < lo - half) brokeBefore = true;
+      }
+      return {
+        price: z.price, low: lo, high: hi,
+        touches: members.length,
+        pivots: members.map((m) => m.i),
+        firstIdx: members[0].i, lastPivotIdx: lastI, lastTestIdx: lastTest,
+        avgVolume: mean(members.map((m) => m.v)),
+        bounce: mean(bounces),
+        brokeBefore,
+      };
+    }).filter((z) => z.touches >= o.minTouches);
 
     // scoring (normalised within this window)
     const maxT = Math.max(1, ...zones.map((z) => z.touches));
@@ -156,26 +157,27 @@
       };
       z.components = c;
       z.score = Math.round(100 * Object.entries(WEIGHTS).reduce((s, [k, w]) => s + w * c[k], 0));
+      z.strength = strengthTier(z.score);
       z.volumeRatio = z.avgVolume / avgVol;
       z.volumeLabel = z.volumeRatio >= 1.3 ? "Heavy" : z.volumeRatio <= 0.8 ? "Light" : "Normal";
-      // role relative to the latest close
-      // role relative to the latest close: a level flips only when price has closed clearly through it
-      const flipped = z.origin === "support" ? price < z.low - tol / 2 : price > z.high + tol / 2;
-      z.role = flipped ? (z.origin === "support" ? "resistance" : "support") : z.origin;
       z.distancePct = (z.price / price - 1) * 100;
-      z.atPrice = price >= z.low - tol / 2 && price <= z.high + tol / 2;
-      if (flipped) z.status = "Broken";           // old support now overhead, or old resistance now below
-      else if (z.atPrice || endIdx - z.lastTestIdx <= 10 || z.closedThrough) z.status = "Tested";
-      else z.status = "Holding";
+      // a zone is broken once price closes clearly below it; until then it is live support
+      z.broken = price < z.low - half;
+      z.inZone = !z.broken && price <= z.high + half;
+      z.status = z.broken ? "Broken"
+        : z.inZone ? "In play"
+        : endIdx - z.lastTestIdx <= 10 ? "Recently tested" : "Holding";
       z.date = data.dates[z.lastTestIdx];
       z.firstDate = data.dates[z.firstIdx];
     }
 
-    const pick = (role) => zones.filter((z) => z.role === role)
+    // live support: strongest `topN`, then listed nearest-to-price first
+    const supports = zones.filter((z) => !z.broken)
       .sort((a, b) => b.score - a.score).slice(0, o.topN)
-      .sort((a, b) => Math.abs(a.distancePct) - Math.abs(b.distancePct));
-    const supports = pick("support");
-    const resistances = pick("resistance");
+      .sort((a, b) => b.price - a.price)
+      .map((z, i) => Object.assign(z, { rank: i + 1, id: "S" + (i + 1) }));
+    // zones price has closed below — kept for the "what changed" feed, not drawn on the chart
+    const broken = zones.filter((z) => z.broken).sort((a, b) => a.price - b.price);
 
     // fallbacks for thin windows
     const rl = rollingLow(data.low, o.period);
@@ -188,11 +190,8 @@
 
     return {
       opts: o, start, end: endIdx, price, atr, tol, avgVolume: avgVol,
-      zones, supports, resistances, fallbacks,
-      pivots: {
-        lows: lowP.confirmed, highs: highP.confirmed,
-        pendingLows: lowP.pending, pendingHighs: highP.pending,
-      },
+      zones, supports, broken, fallbacks,
+      pivots: { lows: lowP.confirmed, pendingLows: lowP.pending },
       rollingLow: rl,
     };
   }
@@ -274,7 +273,7 @@
     };
   }
 
-  /** Volume traded at each price bucket over the window (typical price per bar). */
+  /** Volume traded at each price bucket over the window (optional chart overlay). */
   function volumeProfile(data, res, bins = 30) {
     const lo = Math.min(...data.low.slice(res.start, res.end + 1));
     const hi = Math.max(...data.high.slice(res.start, res.end + 1));
@@ -290,12 +289,12 @@
     return out;
   }
 
-  /** Top levels for several windows, and whether each level recurs across windows. */
+  /** Top support levels for several windows, and whether each level recurs across windows. */
   function compareWindows(data, opts, windows = [21, 63, 126, 252]) {
     const base = normalize(opts);
     const runs = windows.map((w) => ({ window: w, res: analyze(data, { ...base, window: w }) }));
     const tol = runs[0].res.tol;
-    const all = runs.flatMap((r) => [...r.res.supports, ...r.res.resistances].map((z) => ({ w: r.window, z })));
+    const all = runs.flatMap((r) => r.res.supports.map((z) => ({ w: r.window, z })));
     for (const a of all) {
       const seen = new Set(all.filter((b) => Math.abs(b.z.price - a.z.price) <= tol).map((b) => b.w));
       a.z.windowsSeen = seen.size;
@@ -317,21 +316,26 @@
     }[t.label];
     out.push({ html: `TQQQ is in a${t.label === "Uptrend" ? "n" : ""} <b>${t.label.toLowerCase()}</b>${t.label === "Mixed" ? " trend" : ""}: ${why}.` });
 
-    const s = res.supports[0], r = res.resistances[0];
+    const s = res.supports[0];
     if (s) {
-      const where = s.atPrice ? `and price is inside it right now (zone midpoint ${pct(s.distancePct)} ${s.distancePct <= 0 ? "below" : "above"} the close)`
-        : `${pct(s.distancePct)} below the last close`;
-      let txt = `Nearest support is <b>${f(s.low)}–${f(s.high)}</b>, ${where}. ` +
-        `It has held ${s.touches} time${s.touches > 1 ? "s" : ""}, most recently on ${fd(s.date)}.`;
-      if (r) txt += ` Nearest resistance is ${f(r.low)}–${f(r.high)}, ${r.atPrice ? "with price already inside it" : pct(r.distancePct) + " above"}.`;
-      out.push({ html: txt });
+      const where = s.inZone
+        ? "and price is sitting inside it right now"
+        : `— about ${pct(s.distancePct)} below the last close`;
+      out.push({ html: `The nearest support is <b>${f(s.low)}–${f(s.high)}</b> ${where}. ` +
+        `Price has turned higher there ${s.touches} time${s.touches > 1 ? "s" : ""}, most recently on ${fd(s.date)}, ` +
+        `which makes it a <b>${s.strength.toLowerCase()}</b> level (score ${s.score}/100).` });
     } else if (res.fallbacks.length) {
-      out.push({ html: `No confirmed support below price in this window. Fallback levels: ${res.fallbacks.map((x) => `${x.label} ${f(x.price)}`).join(", ")}.` });
+      out.push({ html: `No confirmed support was found below the price in this window. Fallback levels to watch: ${res.fallbacks.map((x) => `${x.label} ${f(x.price)}`).join(", ")}. Try a longer window.` });
     }
+
     const strongest = [...res.supports].sort((a, b) => b.score - a.score)[0];
-    if (strongest) {
-      out.push({ html: `The strongest support in this window is <b>${f(strongest.price)}</b> (${strongest.touches} touch${strongest.touches > 1 ? "es" : ""}, ${strongest.volumeLabel.toLowerCase()} volume, score ${strongest.score}).` });
+    if (strongest && strongest !== s) {
+      out.push({ html: `The strongest support in this window is <b>${f(strongest.price)}</b> (${strongest.id}) — ${strongest.touches} touch${strongest.touches > 1 ? "es" : ""} on ${strongest.volumeLabel.toLowerCase()} volume, ${pct(strongest.distancePct)} below the close.` });
+    } else if (res.supports.length > 1) {
+      const nxt = res.supports[1];
+      out.push({ html: `The next support below that is <b>${f(nxt.price)}</b> (${nxt.id}), ${pct(nxt.distancePct)} below the close — the level to watch if ${s.id} gives way.` });
     }
+
     const rv = lab.rsi.value;
     const rsiTxt = rv >= 70 ? "overbought. Short-term pullbacks are more likely than usual."
       : rv >= 60 ? "close to overbought. Short-term pullbacks are more likely than usual."
@@ -339,8 +343,9 @@
       : rv <= 40 ? "close to oversold; momentum is weak."
       : "neutral.";
     out.push({ html: `RSI is ${rv.toFixed(0)}, ${rsiTxt} MACD is ${lab.macd.label.toLowerCase()}${lab.macd.crossDate ? ` (crossed ${lab.macd.crossDir} on ${fd(lab.macd.crossDate)})` : ""}.` });
+
     if (s) {
-      out.push({ html: `TQQQ usually moves about ${lab.atr.pct.toFixed(1)}% a day. A stop placed 1 ATR below support would be near <b>${f(s.low - res.atr)}</b>.` });
+      out.push({ html: `TQQQ moves about ${lab.atr.pct.toFixed(1)}% on a typical day, so a level can be tested and reclaimed inside one session. A stop one day's range below ${s.id} would sit near <b>${f(s.low - res.atr)}</b>.` });
     }
     return out.slice(0, 5);
   }
@@ -350,8 +355,8 @@
     const res = analyze(data, opts);
     const lab = labels(data, res);
     const z = (x) => ({
-      role: x.role, origin: x.origin, price: +x.price.toFixed(2), low: +x.low.toFixed(2), high: +x.high.toFixed(2),
-      touches: x.touches, score: x.score, status: x.status, last_test: x.date,
+      id: x.id, price: +x.price.toFixed(2), low: +x.low.toFixed(2), high: +x.high.toFixed(2),
+      touches: x.touches, score: x.score, strength: x.strength, status: x.status, last_test: x.date,
     });
     return {
       as_of: data.dates[res.end], close: +res.price.toFixed(2),
@@ -359,7 +364,8 @@
       trend: lab.trend.label, rsi: +lab.rsi.value.toFixed(1), rsi_label: lab.rsi.label,
       macd: lab.macd.label, ma_cross: lab.maCross,
       atr_pct: +lab.atr.pct.toFixed(2), drawdown: +lab.drawdown.toFixed(2),
-      supports: res.supports.map(z), resistances: res.resistances.map(z),
+      supports: res.supports.map(z),
+      broken: res.broken.slice(0, 5).map((x) => ({ ...z(x), id: null })),
     };
   }
 
@@ -368,23 +374,22 @@
     const out = [];
     if (!prev) return out;
     const near = (a, b) => Math.abs(a.price / b.price - 1) * 100 <= tolPct;
-    const prevAll = [...prev.supports, ...prev.resistances];
-    const curAll = [...cur.supports, ...cur.resistances];
-    for (const z of curAll) {
-      const m = prevAll.find((p) => near(p, z));
-      if (!m) {
-        const R = z.role[0].toUpperCase() + z.role.slice(1);
-        out.push({ type: "new", text: z.last_test === cur.as_of && z.touches === 1
-          ? `New ${z.role} level formed at $${z.price.toFixed(2)}.`
-          : `${R} at $${z.price.toFixed(2)} (${z.touches} touch${z.touches > 1 ? "es" : ""}) moved into the top ${Math.max(cur[z.role === "support" ? "supports" : "resistances"].length, 1)}.` });
-      }
-      else if (m.role !== z.role)
-        out.push({ type: z.role === "resistance" ? "broken" : "reclaimed", text: z.role === "resistance"
-          ? `Support at $${z.price.toFixed(2)} broke; it is now overhead resistance.`
-          : `Price moved above $${z.price.toFixed(2)}; that level now acts as support.` });
+    const find = (list, z) => (list || []).find((p) => near(p, z));
+    const money = (v) => "$" + v.toFixed(2);
+
+    for (const z of cur.supports) {
+      if (find(prev.supports, z)) continue;
+      out.push(find(prev.broken, z)
+        ? { type: "reclaimed", text: `Price climbed back above ${money(z.price)}; that zone is acting as support again.` }
+        : { type: "new", text: z.last_test === cur.as_of && z.touches === 1
+          ? `A new support zone formed at ${money(z.price)} after today's swing low.`
+          : `Support at ${money(z.price)} (${z.touches} touch${z.touches > 1 ? "es" : ""}) moved into the top ${Math.max(cur.supports.length, 1)}.` });
     }
-    for (const p of prevAll) {
-      if (!curAll.find((z) => near(p, z))) out.push({ type: "dropped", text: `${p.role[0].toUpperCase() + p.role.slice(1)} at $${p.price.toFixed(2)} dropped out of the top list.` });
+    for (const p of prev.supports || []) {
+      if (find(cur.supports, p)) continue;
+      out.push(find(cur.broken, p)
+        ? { type: "broken", text: `Support at ${money(p.price)} broke — price closed below the zone.` }
+        : { type: "dropped", text: `Support at ${money(p.price)} dropped out of the top list.` });
     }
     if (prev.trend !== cur.trend) out.push({ type: "trend", text: `Trend changed from ${prev.trend} to ${cur.trend}.` });
     if (prev.rsi_label !== cur.rsi_label) out.push({ type: "rsi", text: `RSI moved from ${prev.rsi_label.toLowerCase()} to ${cur.rsi_label.toLowerCase()} (${cur.rsi}).` });
@@ -407,8 +412,8 @@
   }
 
   return {
-    DEFAULTS, LIMITS, WINDOW_PRESETS, WEIGHTS,
-    normalize, findPivots, rollingLow, cluster, analyze, labels, trendCall, benchmark,
+    DEFAULTS, LIMITS, WINDOW_PRESETS, WEIGHTS, TIERS,
+    normalize, strengthTier, findPivots, rollingLow, cluster, analyze, labels, trendCall, benchmark,
     volumeProfile, compareWindows, findings, snapshot, diffSnapshots, truncate, fromPayload,
   };
 });

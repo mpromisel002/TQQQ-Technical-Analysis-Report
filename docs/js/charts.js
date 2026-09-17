@@ -1,7 +1,7 @@
 /*
  * Minimal, dependency-free canvas charts for the TQQQ dashboard.
  *   StackChart     – vertically stacked panes sharing one date axis (pan / zoom / crosshair)
- *   LevelDotChart  – support & resistance levels found with several windows (window comparison)
+ *   LevelDotChart  – support levels found with several look-back windows (window comparison)
  * Colours come from CSS custom properties so light/dark themes just work.
  */
 (function (root) {
@@ -148,6 +148,15 @@
         ctx.save();
         ctx.beginPath(); ctx.rect(L.left, p.y, L.right - L.left, p.h); ctx.clip();
         p.draw(ctx, S);
+        // grey veil over history that falls outside the selected window
+        const di = this.o.dimBefore && this.o.dimBefore();
+        if (di != null && di > i0) {
+          const xEnd = Math.min(L.right, xScale(di) - barW / 2);
+          if (xEnd > L.left) {
+            ctx.fillStyle = withAlpha(ink.muted, 0.13);
+            ctx.fillRect(L.left, p.y, xEnd - L.left, p.h);
+          }
+        }
         ctx.restore();
         if (p.title) { // drawn over the data on a soft backdrop so lines never hide it
           ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -324,6 +333,12 @@
       });
     }
 
+    destroy() {
+      this.ro.disconnect();
+      this.canvas.remove();
+      this.tip.remove();
+    }
+
     toPNG(title) {
       const src = this.canvas;
       const dpr = src.width / src.clientWidth;
@@ -451,6 +466,11 @@
   };
 
   /* ================================================================ LevelDotChart */
+  /**
+   * Support levels found with several look-back windows, one column per window.
+   * Dot size and fill = strength; a labelled guide line marks levels that show up
+   * in most windows, which are the ones worth trusting.
+   */
   class LevelDotChart {
     constructor(host, { onHoverText } = {}) {
       this.host = host;
@@ -476,18 +496,23 @@
 
     render() {
       if (!this.runs || !this.host.clientWidth) return;
-      const w = this.host.clientWidth, h = 320;
+      const w = this.host.clientWidth;
+      const narrow = w < 520;
+      const h = narrow ? 300 : 330;
       const ctx = setupCanvas(this.canvas, w, h);
-      const L = { left: 8, right: w - 56, top: 12, bottom: h - 28 };
-      const all = this.runs.flatMap((r) => [...r.res.supports, ...r.res.resistances]);
-      let lo = Math.min(this.price, ...all.map((z) => z.price));
-      let hi = Math.max(this.price, ...all.map((z) => z.price));
-      const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+      const L = { left: 10, right: w - (narrow ? 50 : 62), top: 16, bottom: h - 34 };
+      const all = this.runs.flatMap((r) => r.res.supports);
+      let lo = Math.min(this.price, ...all.map((z) => z.low));
+      let hi = Math.max(this.price, ...all.map((z) => z.high));
+      const pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
       const y = (v) => L.bottom - ((v - lo) / (hi - lo)) * (L.bottom - L.top);
       const colW = (L.right - L.left) / this.runs.length;
       const x = (k) => L.left + colW * (k + 0.5);
+      const sup = css("--support");
+
       ctx.fillStyle = css("--surface-1"); ctx.fillRect(0, 0, w, h);
       ctx.font = FONT;
+      // price grid
       ctx.strokeStyle = css("--grid"); ctx.fillStyle = css("--text-muted");
       ctx.textAlign = "left"; ctx.textBaseline = "middle";
       for (const t of niceTicks(lo, hi, 6)) {
@@ -495,34 +520,67 @@
         ctx.beginPath(); ctx.moveTo(L.left, ty); ctx.lineTo(L.right, ty); ctx.stroke();
         ctx.fillText("$" + t, L.right + 6, ty);
       }
+      // faint column spines keep each window's dots visually grouped
+      ctx.strokeStyle = withAlpha(css("--axis"), 0.5);
+      this.runs.forEach((r, k) => {
+        ctx.beginPath(); ctx.moveTo(Math.round(x(k)) + 0.5, L.top); ctx.lineTo(Math.round(x(k)) + 0.5, L.bottom); ctx.stroke();
+      });
+
+      // guide lines for levels that recur across windows — deduplicated by price
+      const recurring = [];
+      for (const z of all) {
+        if (z.windowsSeen >= 3 && !recurring.some((s2) => Math.abs(s2.price - z.price) / z.price < 0.02)) recurring.push(z);
+      }
+      for (const z of recurring) {
+        const ty = Math.round(y(z.price)) + 0.5;
+        ctx.strokeStyle = withAlpha(sup, 0.45); ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+        ctx.beginPath(); ctx.moveTo(L.left, ty); ctx.lineTo(L.right, ty); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
       // current price
-      ctx.strokeStyle = css("--text-secondary"); ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = css("--text-secondary"); ctx.lineWidth = 1.5; ctx.setLineDash([2, 3]);
       ctx.beginPath(); ctx.moveTo(L.left, Math.round(y(this.price)) + 0.5); ctx.lineTo(L.right, Math.round(y(this.price)) + 0.5); ctx.stroke();
       ctx.setLineDash([]);
       draw.tag(ctx, L.right + 2, y(this.price), this.fmt(this.price), css("--text-primary"), css("--surface-1"), "left");
-      ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.fillStyle = css("--text-secondary");
+
       const names = { 21: "1 month", 63: "3 months", 126: "6 months", 189: "9 months", 252: "12 months" };
       this.pts = [];
       this.runs.forEach((r, k) => {
         ctx.fillStyle = css("--text-secondary"); ctx.textAlign = "center"; ctx.textBaseline = "top";
-        ctx.fillText(names[r.window] || `${r.window} sessions`, x(k), L.bottom + 8);
-        const zs = [...r.res.supports, ...r.res.resistances];
-        for (const z of zs) {
-          const rad = 4 + (z.score / 100) * 6;
-          const px = x(k), py = y(z.price);
-          const col = z.role === "support" ? css("--support") : css("--resistance");
+        ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.fillText(names[r.window] || `${r.window} sessions`, x(k), L.bottom + 10);
+        ctx.font = FONT;
+        // labels are de-overlapped within the column so every price stays readable
+        const zs = r.res.supports.map((z) => ({ z, py: y(z.price) })).sort((a, b) => a.py - b.py);
+        for (let i = 1; i < zs.length; i++) if (zs[i].py - zs[i - 1].py < 13) zs[i].py = zs[i - 1].py + 13;
+        for (const { z, py } of zs) {
+          const rad = 4 + (z.score / 100) * 5;
+          const px = x(k);
           const hot = this.hot && this.hot.z === z;
           if (z.windowsSeen >= 3) { // recurring level: outer ring
-            ctx.strokeStyle = col; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.arc(px, py, rad + 4, 0, Math.PI * 2); ctx.stroke();
+            ctx.strokeStyle = withAlpha(sup, 0.7); ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(px, y(z.price), rad + 4, 0, Math.PI * 2); ctx.stroke();
           }
-          ctx.beginPath(); ctx.arc(px, py, rad + (hot ? 2 : 0), 0, Math.PI * 2);
-          ctx.fillStyle = col; ctx.fill();
+          ctx.beginPath(); ctx.arc(px, y(z.price), rad + (hot ? 2 : 0), 0, Math.PI * 2);
+          ctx.fillStyle = withAlpha(sup, 0.45 + 0.55 * (z.score / 100)); ctx.fill();
           ctx.lineWidth = 2; ctx.strokeStyle = css("--surface-1"); ctx.stroke();
-          this.pts.push({ x: px, y: py, r: rad + 6, z, w: r.window });
+          if (!narrow) {
+            // price sits on a small backdrop so the guide lines never strike through it
+            const text = this.fmt(z.price);
+            const tw = ctx.measureText(text).width;
+            let tx = px + rad + 6;
+            if (tx + tw + 4 > L.right) tx = px - rad - 6 - tw;
+            ctx.fillStyle = withAlpha(css("--surface-1"), 0.92);
+            ctx.fillRect(tx - 3, py - 7, tw + 6, 14);
+            ctx.fillStyle = hot ? css("--text-primary") : css("--text-secondary");
+            ctx.textAlign = "left"; ctx.textBaseline = "middle";
+            ctx.fillText(text, tx, py);
+          }
+          this.pts.push({ x: px, y: y(z.price), r: rad + 6, z, w: r.window });
         }
       });
-      ctx.strokeStyle = css("--axis");
+      ctx.strokeStyle = css("--axis"); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(L.left, L.bottom + 0.5); ctx.lineTo(L.right, L.bottom + 0.5); ctx.stroke();
       this.renderTip();
     }
