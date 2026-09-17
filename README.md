@@ -18,7 +18,6 @@ The look-back window is configurable from **1 month up to 12 months** (or any cu
 - [How to read the main chart](#how-to-read-the-main-chart)
 - [Settings you can change](#settings-you-can-change)
 - [How support levels are calculated](#how-support-levels-are-calculated)
-- [Why there are no resistance levels](#why-there-are-no-resistance-levels)
 - [How the daily refresh works](#how-the-daily-refresh-works)
 - [Repository layout](#repository-layout)
 - [Setup](#setup)
@@ -91,20 +90,20 @@ Two download buttons sit in the toolbar: **Download CSV** (the levels table plus
 
 ## How to read the main chart
 
-| What you see | What it means |
-|---|---|
-| **Shaded green band** | A support zone. The band spans the whole chart because a support level is a price, not a moment in time. |
-| **Darker green band** | A stronger level. Opacity is stepped by the strength tier — Strong bands are noticeably darker than Weak ones. |
-| **Green label on the right edge** (`S1 $67.28`) | The zone's ID and its centre price. S1 is nearest today's price, S5 is furthest below. |
-| **Black label on the right edge** | The last closing price. |
-| **Solid green triangle** below a bar | A swing low that helped build one of the five levels shown. |
-| **Faded green triangle** | A swing low that did not make the top five. |
-| **Hollow green triangle** | A pending swing low — too recent to confirm. |
-| **Hollow candle / filled candle** | An up day / a down day. Shape as well as colour, so it reads correctly for colour-blind viewers. |
-| **Pink staircase** | The rolling 3-day low — the lowest low of the last three sessions, the nearest very-short-term floor. |
-| **Blue / orange / purple lines** | 20-, 50- and 200-day moving averages. |
-| **Grey shaded area on the left** | History *outside* the window you chose. Shown for context; not used to find levels. |
-| **Panels below the price** | Volume, RSI, MACD and drawdown, sharing the same date axis. |
+| | What you see | What it means |
+|:--:|---|---|
+| <img src="assets/readme/zone-band.svg" alt="" width="52"> | **Shaded green band** | A support zone. It spans the whole chart because a support level is a price, not a moment in time. |
+| <img src="assets/readme/zone-strength.svg" alt="" width="52"> | **Darker green = stronger** | Opacity is stepped by the strength tier, so Strong zones are visibly darker than Weak ones. |
+| <img src="assets/readme/tag-level.svg" alt="" width="74"> | **Green tag, right edge** | The zone's ID and its centre price. **S1** is nearest today's price, **S5** is furthest below. |
+| <img src="assets/readme/tag-close.svg" alt="" width="52"> | **Dark tag, right edge** | The last closing price. |
+| <img src="assets/readme/swing-used.svg" alt="" width="22"> | **Solid green triangle** | A swing low that helped build one of the five levels shown. |
+| <img src="assets/readme/swing-other.svg" alt="" width="22"> | **Faded green triangle** | A swing low that did not make the top five. |
+| <img src="assets/readme/swing-pending.svg" alt="" width="22"> | **Hollow green triangle** | A pending swing low — too recent to confirm, because the three sessions that have to follow it haven't happened. |
+| <img src="assets/readme/candles.svg" alt="" width="34"> | **Hollow / filled candle** | An up day / a down day. Shape as well as colour, so direction still reads for colour-blind viewers. |
+| <img src="assets/readme/rolling-low.svg" alt="" width="52"> | **Pink staircase** | The rolling 3-day low — the lowest low of the last three sessions, and the nearest very-short-term floor. |
+| <img src="assets/readme/moving-averages.svg" alt="" width="52"> | **Blue / orange / purple lines** | The 20-, 50- and 200-day moving averages. |
+| <img src="assets/readme/out-of-window.svg" alt="" width="52"> | **Greyed-out area on the left** | History *outside* the window you chose. Shown for context; not used to find levels. |
+| <img src="assets/readme/panels.svg" alt="" width="52"> | **Panels below the price** | Volume, RSI, MACD and drawdown, all sharing the same date axis. |
 
 **Interaction:** hover or tap for the numbers behind any day, drag sideways to pan, Ctrl/⌘ + scroll or pinch to zoom, double-click to reset. The **Show:** chips under the legend turn the optional panels and overlays on and off; your choices are remembered in your browser.
 
@@ -183,14 +182,6 @@ Three independent checks, all of which must agree:
 3. Are the last two swing lows rising or falling?
 
 All three bullish → **Uptrend**. All three bearish → **Downtrend**. Anything else → **Mixed**, which is an honest answer rather than a forced call.
-
----
-
-## Why there are no resistance levels
-
-An earlier version of this report also detected resistance (the mirror-image method run on swing highs). It was removed on purpose.
-
-The brief asks for support levels, and carrying both doubled the number of bands, labels and markers on the chart while halving the space each one had. The chart now carries a single idea — **where the floors are** — which is what the levels are meant to inform. Overhead levels are still accounted for indirectly: a broken support is reported as a break, and the trend call and RSI tell you whether price is pushing into stretched territory.
 
 ---
 
