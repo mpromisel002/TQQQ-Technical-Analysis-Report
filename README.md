@@ -246,12 +246,6 @@ This dashboard sits in a well-populated genre. Useful reference points, if you w
 
 Where this one differs: the method is a single auditable file, the window is a control rather than an assumption, every level carries its evidence (touches, dates, volume, score), and the whole report regenerates unattended each weekday.
 
-### Analyst background
-
-> **[Fill this in — it is the one part of this document nobody else can write for you.]**
->
-> Suggested content: your background in market or quantitative analysis; instruments and timeframes you work in; tooling (Python/pandas, SQL, charting platforms, backtesting frameworks); any prior support/resistance, signal or dashboard work; and two or three links to comparable reports you have produced. If this repository is itself the portfolio piece, link the live site and note that the data pipeline, the method, the visualisation and the tests are all in this repo and runnable from a clean checkout.
-
 ---
 
 ## How the daily refresh works
