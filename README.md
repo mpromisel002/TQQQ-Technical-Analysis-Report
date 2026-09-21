@@ -19,6 +19,7 @@ The look-back window is configurable from **1 month up to 12 months** (or any cu
 - [How to read the main chart](#how-to-read-the-main-chart)
 - [Settings you can change](#settings-you-can-change)
 - [How support levels are calculated](#how-support-levels-are-calculated)
+- [Methodology, provenance & comparable reports](#methodology-provenance--comparable-reports)
 - [How the daily refresh works](#how-the-daily-refresh-works)
 - [Repository layout](#repository-layout)
 - [Setup](#setup)
@@ -198,6 +199,58 @@ Three independent checks, all of which must agree:
 3. Are the last two swing lows rising or falling?
 
 All three bullish → **Uptrend**. All three bearish → **Downtrend**. Anything else → **Mixed**, which is an honest answer rather than a forced call.
+
+---
+
+## Methodology, provenance & comparable reports
+
+### Where each technique comes from
+
+Nothing in this report is a private indicator. Every component is a documented, decades-old technique, which is deliberate: a level you cannot explain is a level you cannot defend to whoever asks about it.
+
+| Component | Origin |
+|---|---|
+| **RSI** and **ATR** | J. Welles Wilder Jr., *New Concepts in Technical Trading Systems* (1978), which introduced both along with Wilder's smoothing method. ATR is used here for zone width and stop distance — closer to Wilder's original intent than the momentum reading RSI is usually reduced to. |
+| **MACD** | Gerald Appel, developed in the late 1970s. Standard 12/26/9 parameters. |
+| **Bollinger Bands** | John Bollinger, early 1980s. Used here only to say where price sits in its normal 20-day range, not as a signal. |
+| **Swing highs and lows** | The generic pivot rule — a bar that is the extreme of the *k* bars either side. Bill Williams' "fractals" (*Trading Chaos*, 1995) are the best-known named version, using k = 2. This report defaults to k = 3, matching the brief, and exposes k as a setting. |
+| **Higher lows as trend evidence** | Dow Theory's core observation that an advancing market makes successively higher lows. It is one of the three checks behind the trend call. |
+| **Volume-weighted price levels** | The market-profile tradition associated with J. Peter Steidlmayer's work at the Chicago Board of Trade in the 1980s: price areas matter in proportion to the business transacted there. Zone prices here are volume-weighted for the same reason. |
+| **Golden / death cross** | Long-standing 50/200-day moving-average convention with no single originator. Reported as a dated event, not a recommendation. |
+
+### What this report decides for itself
+
+Three things are **not** inherited from the literature, and should be treated as engineering judgment rather than established fact:
+
+1. **The 0–100 strength score.** Weighting touches 40%, recency 30%, volume 20% and bounce 10% is a reasoned ranking heuristic, *not* a fitted or backtested model. It orders levels within one window; it is not a probability that a level will hold, and it should never be read as one.
+2. **Clustering at 0.5 × ATR.** Merging swing lows within half an average day's range is a volatility-relative choice, so it adapts as TQQQ calms down or speeds up. The multiplier is adjustable precisely because it is a judgment call.
+3. **The break rule.** A close more than half the cluster distance below a zone retires it. A tolerance is needed because a leveraged fund pierces levels intraday constantly; where exactly to set it is a choice.
+
+### What the research actually supports
+
+Worth stating plainly, because it affects how much weight the output deserves:
+
+- Brock, Lakonishok and LeBaron, *Simple Technical Trading Rules and the Stochastic Properties of Stock Returns* (Journal of Finance, 1992), found statistically significant results for moving-average and trading-range-break rules on the Dow — while noting that transaction costs and data-snooping concerns temper the conclusion. Later work has argued much of the effect weakened after publication.
+- Carol Osler's research at the Federal Reserve Bank of New York on published support and resistance levels in currency markets found that such levels did cluster with intraday reversals more often than chance — evidence that these levels function partly because enough participants watch them.
+
+The honest summary: support levels are a defensible way to describe where transactions have clustered and where reversals have historically occurred. They are not a forecast, and this report is built to inform a decision rather than make one.
+
+### Comparable reports
+
+This dashboard sits in a well-populated genre. Useful reference points, if you want to compare format and rigour:
+
+- **Broker technical-opinion pages** (Fidelity, Schwab and similar) — a single symbol, a trend verdict, a handful of indicator readings in plain language. Closest in audience to this report; generally shallower on method disclosure.
+- **Charting-platform auto support/resistance indicators** (TradingView and StockCharts both host many) — the same pivot-detection-plus-clustering approach this report uses, usually drawn on the chart with no written explanation and no reproducibility.
+- **Sell-side technical strategy notes** — a chart, marked levels, and a paragraph of narrative. Stronger on judgment, weaker on being re-runnable by the reader.
+- **Quantitative factor tear sheets** (the style popularised by open-source portfolio-analytics libraries) — dense, reproducible, and aimed at practitioners. This report borrows their reproducibility while staying readable by a non-specialist.
+
+Where this one differs: the method is a single auditable file, the window is a control rather than an assumption, every level carries its evidence (touches, dates, volume, score), and the whole report regenerates unattended each weekday.
+
+### Analyst background
+
+> **[Fill this in — it is the one part of this document nobody else can write for you.]**
+>
+> Suggested content: your background in market or quantitative analysis; instruments and timeframes you work in; tooling (Python/pandas, SQL, charting platforms, backtesting frameworks); any prior support/resistance, signal or dashboard work; and two or three links to comparable reports you have produced. If this repository is itself the portfolio piece, link the live site and note that the data pipeline, the method, the visualisation and the tests are all in this repo and runnable from a clean checkout.
 
 ---
 
