@@ -302,52 +302,147 @@
     return runs;
   }
 
-  /** Plain-language findings (up to 5 sentences) for the current window. */
-  function findings(data, res, lab, fmt, fmtDate) {
-    const f = fmt || ((v) => "$" + v.toFixed(2));
+  const GROUPS = ["Support levels", "Trend", "Momentum & volatility", "Risk & leverage"];
+  const pct2 = (v) => (v > 0 ? "+" : "") + v.toFixed(1) + "%";
+
+  /**
+   * Plain-language findings for the current window, grouped for scanning.
+   * Returns [{ group, html }] — at least ten items in any normal window.
+   * `ctx.runs` is the output of compareWindows(); pass it to get the
+   * cross-window confirmation finding (the page already computes it once).
+   */
+  function findings(data, res, lab, fmt, fmtDate, ctx = {}) {
+    const f = fmt || ((v) => (v == null || !isFinite(v) ? "–" : "$" + v.toFixed(2)));
     const fd = fmtDate || ((d) => d);
-    const pct = (v) => Math.abs(v).toFixed(1) + "%";
+    const pct = (v) => (v == null || !isFinite(v) ? "–" : Math.abs(v).toFixed(1) + "%");
+    const plural = (n, w) => `${n} ${w}${n === 1 ? "" : /(ch|sh|s|x|z)$/.test(w) ? "es" : "s"}`;
+    const i = res.end;
     const out = [];
-    const t = lab.trend;
-    const why = {
-      Uptrend: "price is above its 50 and 200-day averages, the 50-day is rising, and swing lows are getting higher",
-      Downtrend: "price is below its 50 and 200-day averages, the 50-day is falling, and swing lows are getting lower",
-      Mixed: "the averages, the 50-day slope and the swing lows disagree",
-    }[t.label];
-    out.push({ html: `TQQQ is in a${t.label === "Uptrend" ? "n" : ""} <b>${t.label.toLowerCase()}</b>${t.label === "Mixed" ? " trend" : ""}: ${why}.` });
+    const add = (group, html) => out.push({ group, html });
 
     const s = res.supports[0];
+    const nxt = res.supports[1];
+    const strongest = [...res.supports].sort((a, b) => b.score - a.score)[0];
+
+    /* ---------------------------------------------------------- support levels */
     if (s) {
       const where = s.inZone
-        ? "and price is sitting inside it right now"
-        : `— about ${pct(s.distancePct)} below the last close`;
-      out.push({ html: `The nearest support is <b>${f(s.low)}–${f(s.high)}</b> ${where}. ` +
-        `Price has turned higher there ${s.touches} time${s.touches > 1 ? "s" : ""}, most recently on ${fd(s.date)}, ` +
-        `which makes it a <b>${s.strength.toLowerCase()}</b> level (score ${s.score}/100).` });
+        ? ", and price is sitting inside it right now"
+        : ` — about ${pct(s.distancePct)} below the last close`;
+      add(GROUPS[0], `<b>${s.id} is the first floor under price, at ${f(s.low)}–${f(s.high)}</b>${where}. ` +
+        `Buyers have turned it higher ${plural(s.touches, "time")} here, most recently on ${fd(s.date)}, ` +
+        `which scores it a <b>${s.strength.toLowerCase()}</b> level (${s.score}/100).`);
     } else if (res.fallbacks.length) {
-      out.push({ html: `No confirmed support was found below the price in this window. Fallback levels to watch: ${res.fallbacks.map((x) => `${x.label} ${f(x.price)}`).join(", ")}. Try a longer window.` });
+      add(GROUPS[0], `<b>No confirmed support was found below the price</b> in this window — there simply have not been enough swing lows yet. ` +
+        `Fall back to ${res.fallbacks.map((x) => `the ${x.label.toLowerCase()} at ${f(x.price)}`).join(" and ")}, or widen the window.`);
     }
 
-    const strongest = [...res.supports].sort((a, b) => b.score - a.score)[0];
-    if (strongest && strongest !== s) {
-      out.push({ html: `The strongest support in this window is <b>${f(strongest.price)}</b> (${strongest.id}) — ${strongest.touches} touch${strongest.touches > 1 ? "es" : ""} on ${strongest.volumeLabel.toLowerCase()} volume, ${pct(strongest.distancePct)} below the close.` });
-    } else if (res.supports.length > 1) {
-      const nxt = res.supports[1];
-      out.push({ html: `The next support below that is <b>${f(nxt.price)}</b> (${nxt.id}), ${pct(nxt.distancePct)} below the close — the level to watch if ${s.id} gives way.` });
+    if (s && nxt) {
+      const gapPct = (s.price / nxt.price - 1) * 100;
+      const gapDays = (s.price - nxt.price) / res.atr;
+      add(GROUPS[0], `If ${s.id} gives way, the next floor is <b>${nxt.id} at ${f(nxt.price)}</b> — a further ${pct(gapPct)} down, ` +
+        `or roughly ${gapDays.toFixed(1)} typical days of movement. That gap is open air: no level in between has been defended.`);
+    } else if (s) {
+      add(GROUPS[0], `${s.id} is the <b>only</b> confirmed level below price in this window, so there is nothing mapped underneath it. ` +
+        `A longer window would show what has held further down.`);
     }
 
+    if (strongest) {
+      const same = strongest === s;
+      add(GROUPS[0], `The most dependable level here is <b>${strongest.id} at ${f(strongest.price)}</b>` +
+        `${same ? ", which is also the nearest one" : `, ${pct(strongest.distancePct)} below the close`} — ` +
+        `${plural(strongest.touches, "touch")} on ${strongest.volumeLabel.toLowerCase()} volume ` +
+        `(${strongest.volumeRatio.toFixed(1)}× the window average), scoring ${strongest.score}/100.`);
+    }
+
+    if (ctx.runs) {
+      const seen = [];
+      for (const r of ctx.runs) for (const z of r.res.supports) {
+        if (z.windowsSeen >= 3 && !seen.some((x) => Math.abs(x.price - z.price) <= res.tol)) seen.push(z);
+      }
+      seen.sort((a, b) => b.price - a.price);
+      add(GROUPS[0], seen.length
+        ? `<b>${plural(seen.length, "level")} survive${seen.length === 1 ? "s" : ""} at least three of the four look-back lengths</b> ` +
+          `(${seen.map((z) => f(z.price)).join(", ")}). Levels that persist across 1, 3, 6 and 12-month windows are the least likely to be an artefact of the window chosen.`
+        : `<b>No level appears in three or more of the four look-back lengths.</b> The floors below are specific to this window — treat them as shorter-lived than usual, and compare the window chart before relying on them.`);
+    }
+
+    const rl = res.rollingLow[i];
+    if (rl != null) {
+      const rlPct = (rl / res.price - 1) * 100;
+      add(GROUPS[0], `The immediate floor is the <b>${res.opts.period}-day rolling low at ${f(rl)}</b>, ${pct(rlPct)} under the close — ` +
+        `the line in the sand for this week rather than this quarter.` +
+        (res.broken.length
+          ? ` ${plural(res.broken.length, "zone")} in this window ${res.broken.length === 1 ? "has already broken and no longer counts" : "have already broken and no longer count"} as support.`
+          : ` No zone in this window has broken.`));
+    }
+
+    /* ------------------------------------------------------------------ trend */
+    const t = lab.trend;
+    const why = {
+      Uptrend: "price is above both its 50 and 200-day averages, the 50-day is rising, and swing lows are stepping higher",
+      Downtrend: "price is below both its 50 and 200-day averages, the 50-day is falling, and swing lows are stepping lower",
+      Mixed: "the moving averages, the 50-day slope and the swing lows do not agree",
+    }[t.label];
+    add(GROUPS[1], `TQQQ is in a${t.label === "Uptrend" ? "n" : ""} <b>${t.label.toLowerCase()}</b>${t.label === "Mixed" ? " trend" : ""}: ${why}. ` +
+      `${t.label === "Mixed" ? "A mixed read is the honest answer when the checks conflict — support matters more than trend in this state." : "All three trend checks point the same way."}`);
+
+    const c = data.close[i];
+    const above = (v) => (v == null ? "n/a" : c > v ? "above" : "below");
+    add(GROUPS[1], `Price sits <b>${above(data.sma50[i])} the 50-day average</b> (${f(data.sma50[i])}) and <b>${above(data.sma200[i])} the 200-day</b> (${f(data.sma200[i])})` +
+      `${t.slopePct == null ? "" : `, with the 50-day ${t.slopePct >= 0 ? "rising" : "falling"} ${pct(t.slopePct)} over the last 20 sessions`}` +
+      `${lab.maCross ? `. The last ${lab.maCross.type.toLowerCase()} was on ${fd(lab.maCross.date)}` : ""}.`);
+
+    const low12 = Math.min(...data.low.slice(Math.max(0, data.close.length - 252)));
+    const posPct = ((c - low12) / (lab.high12m - low12)) * 100;
+    const swings = t.checks.swings;
+    add(GROUPS[1], `The close is <b>${pct(lab.drawdown)} below the 12-month high</b> of ${f(lab.high12m)} and sits ${posPct.toFixed(0)}% of the way up the 12-month range ` +
+      `(${f(low12)}–${f(lab.high12m)}). The window holds ${plural(res.pivots.lows.length, "confirmed swing low")}` +
+      `${res.pivots.lows.length < 2 ? " — too few to say whether lows are stepping up or down" : `, and the last two are <b>${swings > 0 ? "rising" : swings < 0 ? "falling" : "level"}</b>`}.`);
+
+    /* -------------------------------------------------- momentum & volatility */
     const rv = lab.rsi.value;
-    const rsiTxt = rv >= 70 ? "overbought. Short-term pullbacks are more likely than usual."
-      : rv >= 60 ? "close to overbought. Short-term pullbacks are more likely than usual."
-      : rv <= 30 ? "oversold. Selling may be stretched and bounces are more likely than usual."
-      : rv <= 40 ? "close to oversold; momentum is weak."
-      : "neutral.";
-    out.push({ html: `RSI is ${rv.toFixed(0)}, ${rsiTxt} MACD is ${lab.macd.label.toLowerCase()}${lab.macd.crossDate ? ` (crossed ${lab.macd.crossDir} on ${fd(lab.macd.crossDate)})` : ""}.` });
+    const rsiTxt = rv >= 70 ? "<b>overbought</b> — the recent rise is stretched and pullbacks are more likely than usual"
+      : rv >= 60 ? "approaching overbought — the rise is getting stretched"
+      : rv <= 30 ? "<b>oversold</b> — selling looks stretched, which is the condition in which support most often holds"
+      : rv <= 40 ? "weak but not yet oversold"
+      : "neutral, so it is neither helping nor hurting the levels below";
+    add(GROUPS[2], `RSI is <b>${rv.toFixed(0)}</b>, ${rsiTxt}. RSI is a 0–100 momentum gauge; it confirms the levels rather than calling them.`);
 
+    add(GROUPS[2], `MACD is <b>${lab.macd.label.toLowerCase()}</b>${lab.macd.crossDate ? `, having crossed ${lab.macd.crossDir} on ${fd(lab.macd.crossDate)}` : ""}, ` +
+      `and the gap to its signal line is ${lab.macd.hist >= 0 ? "positive and " : "negative and "}${Math.abs(lab.macd.hist).toFixed(2)} wide — momentum is ` +
+      `<b>${lab.macd.hist >= 0 ? "building" : "fading"}</b>.`);
+
+    const atrSeries = [];
+    for (let j = res.start; j <= i; j++) if (data.atr14[j] != null) atrSeries.push((data.atr14[j] / data.close[j]) * 100);
+    atrSeries.sort((a, b) => a - b);
+    const atrMed = atrSeries.length ? atrSeries[Math.floor(atrSeries.length / 2)] : lab.atr.pct;
+    const atrRatio = atrMed ? lab.atr.pct / atrMed : 1;
+    const regime = atrRatio <= 0.9 ? "calmer than usual" : atrRatio >= 1.1 ? "choppier than usual" : "about normal";
+    const bbTxt = { "Near upper band": "hugging the upper Bollinger Band", "Near lower band": "hugging the lower Bollinger Band" }[lab.bollinger.label] || "mid-range inside its Bollinger Bands";
+    add(GROUPS[2], `Price is <b>${bbTxt}</b> (${(lab.bollinger.position * 100).toFixed(0)}% of the normal 20-day range), ` +
+      `daily swings average ${lab.atr.pct.toFixed(1)}% versus a ${atrMed.toFixed(1)}% median for this window (<b>${regime}</b>), ` +
+      `and the latest session traded ${lab.volume.ratio.toFixed(1)}× its 20-day average volume (${lab.volume.label.toLowerCase()}).`);
+
+    /* ------------------------------------------------------- risk & leverage */
     if (s) {
-      out.push({ html: `TQQQ moves about ${lab.atr.pct.toFixed(1)}% on a typical day, so a level can be tested and reclaimed inside one session. A stop one day's range below ${s.id} would sit near <b>${f(s.low - res.atr)}</b>.` });
+      const stop = s.low - res.atr;
+      add(GROUPS[3], `TQQQ moves about <b>${lab.atr.pct.toFixed(1)}% on a typical day</b>, so any level can be pierced and reclaimed inside one session. ` +
+        `Placing a stop a full day's range under ${s.id} puts it near <b>${f(stop)}</b>, ${pct((stop / res.price - 1) * 100)} below the close.`);
     }
-    return out.slice(0, 5);
+
+    const b = benchmark(data, res);
+    add(GROUPS[3], `Over this window TQQQ returned ${pct2(b.tqqqReturn)} against ${pct2(b.qqqReturn)} for QQQ. ` +
+      `Three times the index return would have been ${pct2(b.naive3x)}, so <b>daily resetting cost ${pct(b.naive3x - b.tqqqReturn)} of compounding</b>. ` +
+      `Daily beta is ${b.beta.toFixed(2)}× and annualised volatility ${b.volTqqq.toFixed(0)}% versus ${b.volQqq.toFixed(0)}%.`);
+
+    const pending = res.pivots.pendingLows.length;
+    add(GROUPS[3], `These levels are descriptions of past trading, not forecasts, and leverage lets them break hard. ` +
+      (pending
+        ? `<b>${plural(pending, "recent dip")} cannot be confirmed yet</b> — a swing low needs ${res.opts.period} sessions after it — so the picture can still shift.`
+        : `Every swing low in this window is confirmed, but the most recent ${res.opts.period} sessions can still produce a new one.`));
+
+    return out;
   }
 
   /** Compact snapshot used for the daily history files and "what changed". */

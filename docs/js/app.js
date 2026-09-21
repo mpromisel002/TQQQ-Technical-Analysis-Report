@@ -165,9 +165,17 @@
   }
 
   function renderFindings() {
-    const items = SR.findings(state.data, state.res, state.lab, money, fmtDate);
-    $("#findings").innerHTML = items.map((x) => `<li>${x.html}</li>`).join("");
-    $("#winLabel").textContent = `· ${winName(state.opts.window)} window`;
+    const items = SR.findings(state.data, state.res, state.lab, money, fmtDate, { runs: state.runs });
+    const groups = [];
+    for (const it of items) {
+      const g = groups.find((x) => x.name === it.group) || (groups.push({ name: it.group, items: [] }), groups[groups.length - 1]);
+      g.items.push(it);
+    }
+    $("#findings").innerHTML = groups.map((g) => `<section class="fgroup">
+        <h3>${esc(g.name)}</h3>
+        <ul>${g.items.map((x) => `<li>${x.html}</li>`).join("")}</ul>
+      </section>`).join("");
+    $("#winLabel").textContent = `· ${winName(state.opts.window)} window · ${items.length} findings`;
   }
 
   function kpi(label, value, delta, cls = "") {
@@ -473,7 +481,7 @@
   }
 
   function renderCompare() {
-    const runs = SR.compareWindows(state.data, state.opts);
+    const runs = state.runs;
     if (!state.charts.cmp) {
       state.charts.cmp = new LevelDotChart($("#cmpChart"), {
         onHoverText: (z, w) => `<div class="d">Support ${money(z.price)}</div><table>
@@ -561,6 +569,7 @@
   function update({ keepView = false } = {}) {
     state.res = SR.analyze(state.data, state.opts);
     state.lab = SR.labels(state.data, state.res);
+    state.runs = SR.compareWindows(state.data, state.opts); // shared by the findings and the window chart
     syncControls();
     writeUrl();
     renderFindings();

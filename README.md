@@ -15,6 +15,7 @@ The look-back window is configurable from **1 month up to 12 months** (or any cu
 - [Start here: what the page tells you](#start-here-what-the-page-tells-you)
 - [Plain-English glossary](#plain-english-glossary)
 - [What's on the page, section by section](#whats-on-the-page-section-by-section)
+- [What the key findings cover](#what-the-key-findings-cover)
 - [How to read the main chart](#how-to-read-the-main-chart)
 - [Settings you can change](#settings-you-can-change)
 - [How support levels are calculated](#how-support-levels-are-calculated)
@@ -74,7 +75,7 @@ No prior charting knowledge needed. These are the only terms the report uses.
 
 | Section | What it shows | Why it's there |
 |---|---|---|
-| **Key findings** | Up to five plain-language sentences | The whole report in the time it takes to read a paragraph — trend, nearest support, strongest support, momentum, and typical daily move |
+| **Key findings** | 10+ plain-language findings in four groups — support levels, trend, momentum & volatility, risk & leverage | The whole report without reading a chart. Every number is recomputed for the window you pick; see [What the key findings cover](#what-the-key-findings-cover) |
 | **KPI strip** | Last close, trend, nearest support, strongest support, RSI, distance below the 12-month high | The six numbers most decisions start from |
 | **Price & support zones** | Candlestick chart with shaded green support bands, swing-low markers, moving averages, and optional volume / RSI / MACD / drawdown panels | The main visualisation — see [How to read the main chart](#how-to-read-the-main-chart) |
 | **Support levels in detail** | A table of S1–S5: zone price, zone range, distance below price, times held, last tested, strength and status | The numbers behind the chart, with a definition list underneath every column |
@@ -85,6 +86,21 @@ No prior charting knowledge needed. These are the only terms the report uses.
 | **Method, definitions & data** | Glossary, the full method, and the data provenance | Everything needed to audit or reproduce the numbers |
 
 Two download buttons sit in the toolbar: **Download CSV** (the levels table plus every daily row in the window, with indicators) and **Download PNG** (the chart as an image, captioned with the window and data date).
+
+---
+
+## What the key findings cover
+
+The findings are generated from the data on every load — nothing is written by hand — and they re-run whenever you change the window or the method settings. A normal window produces **14 findings** in four groups; a window too short to contain much structure still produces at least ten, with the support findings saying so plainly rather than going quiet.
+
+| Group | Findings |
+|---|---|
+| **Support levels** | 1. `S1`, the first floor under price: its band, distance, number of touches, date last tested and strength score.<br>2. The next level down and the gap to it, expressed both in percent and in *typical days of movement*, so the drop has a time dimension.<br>3. The most dependable level in the window, with its touch count, volume versus the window average and score.<br>4. Cross-window confirmation — which levels survive at least three of the 1, 3, 6 and 12-month look-backs.<br>5. The rolling low as the immediate floor, plus a count of any zones that have broken. |
+| **Trend** | 6. The trend call and which of the three checks agree or conflict.<br>7. Price versus the 50- and 200-day averages, the 50-day slope over 20 sessions, and the date of the last golden or death cross.<br>8. Distance below the 12-month high, position within the 12-month range, the number of confirmed swing lows, and whether the last two are rising. |
+| **Momentum & volatility** | 9. RSI, read as *confirmation* for the levels rather than a signal of its own.<br>10. MACD direction and the width of the gap to its signal line.<br>11. Bollinger position, today's ATR against the window's median ATR (a calm-or-choppy read), and volume against its 20-day average. |
+| **Risk & leverage** | 12. Typical daily move, and where a stop one full day's range below `S1` would sit.<br>13. TQQQ against QQQ over the window: actual return, the naive 3× return, **the compounding lost to daily resetting**, beta and annualised volatility.<br>14. What the levels are not — plus how many recent dips are still unconfirmed, and therefore able to change the picture. |
+
+Two design choices worth naming. Findings are **grouped rather than ranked**, because a reader looking for risk should not have to scan momentum to find it. And the wording follows the numbers: the same finding says "calmer than usual", "about normal" or "choppier than usual" depending on where the current reading sits against its own window, instead of asserting a fixed threshold.
 
 ---
 

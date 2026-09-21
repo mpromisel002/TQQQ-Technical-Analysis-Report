@@ -131,6 +131,22 @@ test("minTouches filters single-touch zones", () => {
   assert.equal(SR.analyze(d, { minTouches: 2 }).zones.length, 0);
 });
 
+test("findings still reach ten items when the window has almost no structure", () => {
+  // straight up: no confirmed swing lows at all, so the support findings fall back
+  const d = synth(Array.from({ length: 40 }, (_, i) => 50 + i));
+  Object.assign(d, {
+    rsi14: Array(40).fill(65), macd: Array(40).fill(1), macd_signal: Array(40).fill(0.5),
+    macd_hist: Array(40).fill(0.5), bb_upper: Array(40).fill(95), bb_lower: Array(40).fill(80),
+    vol_avg20: Array(40).fill(1000), drawdown: Array(40).fill(-2),
+    sma20: Array(40).fill(85), qqq_close: Array.from({ length: 40 }, (_, i) => 100 + i / 3),
+  });
+  const res = SR.analyze(d, { window: 21 });
+  const items = SR.findings(d, res, SR.labels(d, res), null, null, {});
+  assert.ok(items.length >= 10, `got ${items.length}`);
+  assert.ok(items.some((x) => /No confirmed support/.test(x.html)));
+  assert.ok(!items.some((x) => /undefined|NaN/.test(x.html)));
+});
+
 test("thin windows return fallback levels", () => {
   const d = synth(Array.from({ length: 30 }, (_, i) => 50 + i)); // straight up: no swing lows
   const res = SR.analyze(d, { window: 21 });
@@ -188,7 +204,14 @@ test("real TQQQ fixture: sane output for every preset window", () => {
     assert.ok(res.broken.every((z) => z.status === "Broken"));
     const lab = SR.labels(d, res);
     assert.ok(["Uptrend", "Downtrend", "Mixed"].includes(lab.trend.label));
-    assert.ok(SR.findings(d, res, lab).length <= 5);
+    // the report promises at least ten findings, in four known groups
+    const runs = SR.compareWindows(d, { window: w });
+    const items = SR.findings(d, res, lab, null, null, { runs });
+    assert.ok(items.length >= 10, `expected 10+ findings for window ${w}, got ${items.length}`);
+    assert.ok(items.every((x) => x.html && x.group));
+    assert.deepEqual([...new Set(items.map((x) => x.group))],
+      ["Support levels", "Trend", "Momentum & volatility", "Risk & leverage"]);
+    assert.ok(!items.some((x) => /undefined|NaN|\$NaN|touchs/.test(x.html)), "no broken interpolation");
   }
   const snap = SR.snapshot(d, {});
   assert.equal(snap.resistances, undefined);

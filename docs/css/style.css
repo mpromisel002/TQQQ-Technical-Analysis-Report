@@ -102,9 +102,15 @@ main { padding-top: 16px; padding-bottom: 40px; }
 .zoom { display: flex; gap: 6px; }
 .banner { background: color-mix(in srgb, var(--danger) 14%, var(--surface-1)); border: 1px solid var(--danger); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
 
-.findings ul { margin: 0; padding-left: 20px; display: grid; gap: 7px; }
-.findings li { max-width: 95ch; }
-.findings li::marker { color: var(--support); }
+/* Key findings: four labelled groups, two columns on a wide screen */
+.findings-groups { columns: 2; column-gap: 30px; }
+.fgroup { break-inside: avoid; margin-bottom: 15px; }
+.fgroup:last-child { margin-bottom: 0; }
+.fgroup h3 { margin: 0 0 6px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-muted); border-bottom: 1px solid var(--border); padding-bottom: 5px; }
+.fgroup ul { margin: 0; padding-left: 18px; display: grid; gap: 7px; }
+.fgroup li { font-size: 14px; }
+.fgroup li::marker { color: var(--support); }
 .skeleton { color: var(--text-muted); list-style: none; }
 
 .kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -201,6 +207,7 @@ tr.foot-row td { white-space: normal; border-bottom: 0; font-size: 12.5px; }
 
 @media (max-width: 1000px) {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .findings-groups { columns: 1; }
   .grid2 { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
