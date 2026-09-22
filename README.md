@@ -254,10 +254,9 @@ Where this one differs: the method is a single auditable file, the window is a c
 ## How the daily refresh works
 
 ```
-GitHub Actions — four slots per trading day, first one to find new data wins
-  21:00 UTC Mon-Fri  (5:00pm New York, an hour after the close)
-  22:30 UTC Mon-Fri  (6:30pm New York)
-  00:30 UTC Tue-Sat  (8:30pm New York, same trading day)
+GitHub Actions — every 30 min from 16:15 New York, first to find new data wins
+  20:15 / 20:45 / 21:15 / 21:45 / 22:15 / 22:45 UTC  Mon-Fri
+       = 16:15 - 18:45 New York in summer, 15:15 - 17:45 in winter
   11:30 UTC Tue-Sat  (7:30am New York, backstop before the next open)
   │
   ├─ pipeline/build.py     download TQQQ + QQQ daily prices
@@ -275,7 +274,9 @@ GitHub Actions — four slots per trading day, first one to find new data wins
 - If a run fails, the workflow **opens a GitHub issue** (or comments on the existing one). The page also shows the data date in red and displays a banner if the data is more than two sessions old, so a silent failure can't go unnoticed.
 - **Sources are raced on freshness, not just tried in order.** A source that validates is accepted immediately only if it reaches the most recent close; otherwise the remaining sources are tried and the freshest result wins. One provider lagging a session no longer decides what gets published.
 - **The newest bar's close is recovered when the provider lags.** For a while after the bell Yahoo leaves `close` null in its daily array while already reporting that day's close in the quote summary. The pipeline fills it from there — but only once the session is genuinely over and the rest of the bar is complete, so an in-progress price is never written as a close.
-- **The job runs four times per trading day.** GitHub queues scheduled runs on shared infrastructure and starts them 1–4 hours late in practice, so no single slot is dependable. Whichever one first finds a new session publishes it; the others exit in about 30 seconds without committing. A `concurrency` group serialises them, so two runs can never race to push.
+- **The job tries every 30 minutes from 16:15 New York.** That start is not arbitrary: `fetch.py` treats a session as complete from 16:15, so a run a minute earlier cannot publish the day's bar at all. GitHub queues scheduled runs on shared infrastructure and starts them 1–4 hours late in practice, so no single slot is dependable — whichever one first finds a new session publishes it, and the others exit in about 30 seconds without committing. A `concurrency` group serialises them, so two runs can never race to push.
+- Cron is UTC and does not follow daylight saving, so the slots are anchored to EDT. Through the winter they run 15:15–17:45 New York, where the first two land before the close, find nothing and cost about 30 seconds each; 16:15 EST is covered by the third slot.
+- **A published session is never revised.** Once a date is in `tqqq.json`, later runs exit with "no new session" and leave its values alone. Publishing within minutes of the close therefore commits to whatever the source reported at that moment. Run `python pipeline/build.py --force` to rewrite a session if a provider later corrects it.
 - If every source is still behind when a run publishes, `build.py` records a note like *"data ends 2026-09-17, 1 trading day(s) before the expected last close 2026-09-18"* in the file's metadata, which the page shows under **Method & data**.
 - **The page states its own freshness.** `SR.freshness()` compares the published date against the most recent weekday whose 4pm close has passed and resolves to one of three states:
   - **current** — nothing newer exists to publish, so no banner.
