@@ -239,8 +239,15 @@
         crossDate: macdX ? data.dates[macdX.idx] : null, crossDir: macdX?.dir,
       },
       bollinger: {
+        // position is 0 at the lower band and 1 at the upper, so it runs past
+        // those bounds when price closes through a band — a different condition
+        // from merely approaching one, and labelled as such
         position: bbPos,
-        label: bbPos == null ? "n/a" : bbPos >= 0.8 ? "Near upper band" : bbPos <= 0.2 ? "Near lower band" : "Mid-range",
+        label: bbPos == null ? "n/a"
+          : bbPos > 1 ? "Above upper band"
+          : bbPos < 0 ? "Below lower band"
+          : bbPos >= 0.8 ? "Near upper band"
+          : bbPos <= 0.2 ? "Near lower band" : "Mid-range",
       },
       atr: { value: res.atr, pct: (res.atr / c) * 100 },
       volume: { ratio: vr, label: vr >= 1.3 ? "Heavy" : vr <= 0.7 ? "Light" : "Normal" },
@@ -419,10 +426,15 @@
     const atrMed = atrSeries.length ? atrSeries[Math.floor(atrSeries.length / 2)] : lab.atr.pct;
     const atrRatio = atrMed ? lab.atr.pct / atrMed : 1;
     const regime = atrRatio <= 0.9 ? "calmer than usual" : atrRatio >= 1.1 ? "choppier than usual" : "about normal";
-    const bbTxt = { "Near upper band": "hugging the upper Bollinger Band", "Near lower band": "hugging the lower Bollinger Band" }[lab.bollinger.label] || "mid-range inside its Bollinger Bands";
-    add(GROUPS[2], `Price is <b>${bbTxt}</b> (${(lab.bollinger.position * 100).toFixed(0)}% of the normal 20-day range), ` +
-      `daily swings average ${lab.atr.pct.toFixed(1)}% versus a ${atrMed.toFixed(1)}% median for this window (<b>${regime}</b>), ` +
-      `and the latest session traded ${lab.volume.ratio.toFixed(1)}× its 20-day average volume (${lab.volume.label.toLowerCase()}).`);
+    const bbPct = (lab.bollinger.position * 100).toFixed(0);
+    const bbTxt = {
+      "Above upper band": "closed <b>above its upper Bollinger Band</b> — past the top of its normal 20-day range, which is a stretched reading rather than a comfortable one",
+      "Near upper band": `is <b>hugging the upper Bollinger Band</b> (${bbPct}% of its normal 20-day range)`,
+      "Near lower band": `is <b>hugging the lower Bollinger Band</b> (${bbPct}% of its normal 20-day range)`,
+      "Below lower band": "closed <b>below its lower Bollinger Band</b> — under the bottom of its normal 20-day range",
+    }[lab.bollinger.label] || `is <b>mid-range</b> inside its Bollinger Bands (${bbPct}% of its normal 20-day range)`;
+    add(GROUPS[2], `Price ${bbTxt}. Daily swings average ${lab.atr.pct.toFixed(1)}% against a ${atrMed.toFixed(1)}% median for this window ` +
+      `(<b>${regime}</b>), and the latest session traded ${lab.volume.ratio.toFixed(1)}× its 20-day average volume (${lab.volume.label.toLowerCase()}).`);
 
     /* ------------------------------------------------------- risk & leverage */
     if (s) {

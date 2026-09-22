@@ -164,6 +164,33 @@ test("window limits which pivots are used", () => {
   assert.ok(short.pivots.lows.every((i) => i >= 300 - 21));
 });
 
+test("Bollinger label distinguishes closing through a band from nearing one", () => {
+  const file = path.join(__dirname, "..", "docs", "data", "tqqq.json");
+  if (!fs.existsSync(file)) return;
+  const base = SR.fromPayload(JSON.parse(fs.readFileSync(file, "utf8")));
+  const i = base.close.length - 1;
+  const lo = base.bb_lower[i], hi = base.bb_upper[i];
+  const at = (close) => {
+    const d = { ...base, close: base.close.slice() };
+    d.close[i] = close;
+    return SR.labels(d, SR.analyze(d, {})).bollinger;
+  };
+  assert.equal(at(hi + 1).label, "Above upper band");
+  assert.equal(at(lo - 1).label, "Below lower band");
+  assert.equal(at(lo + (hi - lo) * 0.9).label, "Near upper band");
+  assert.equal(at(lo + (hi - lo) * 0.1).label, "Near lower band");
+  assert.equal(at(lo + (hi - lo) * 0.5).label, "Mid-range");
+  // a close past the band must not be described as merely hugging it
+  const res = SR.analyze(base, {});
+  const d = { ...base, close: base.close.slice() };
+  d.close[i] = hi + 1;
+  const txt = SR.findings(d, SR.analyze(d, {}), SR.labels(d, SR.analyze(d, {})), null, null, {})
+    .map((x) => x.html).join(" ");
+  assert.ok(/above its upper Bollinger Band/.test(txt));
+  assert.ok(!/hugging the upper/.test(txt));
+  void res;
+});
+
 test("diffSnapshots reports new, broken and trend changes", () => {
   const prev = { trend: "Uptrend", rsi_label: "Neutral", macd: "Bullish", ma_cross: null,
     supports: [{ price: 50, touches: 2 }], broken: [] };

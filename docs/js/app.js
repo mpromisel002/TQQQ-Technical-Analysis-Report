@@ -249,7 +249,7 @@
       ["MACD", "12, 26, 9", `${l.macd.value.toFixed(2)} / ${l.macd.signal.toFixed(2)}`, `${l.macd.label}${l.macd.crossDate ? ` since ${fmtDate(l.macd.crossDate)}` : ""}`,
         `Momentum is ${l.macd.hist >= 0 ? "building" : "fading"}: the MACD line is ${l.macd.hist >= 0 ? "above" : "below"} its signal line.`],
       ["Bollinger Bands", "20-day, 2 std dev", `${money(d.bb_lower[i])} – ${money(d.bb_upper[i])}`, l.bollinger.label,
-        `Price sits at ${(l.bollinger.position * 100).toFixed(0)}% of its normal 20-day range (0% = lower band, 100% = upper band).`],
+        `Price sits at ${(l.bollinger.position * 100).toFixed(0)}% of its normal 20-day range (0% = lower band, 100% = upper band). Outside 0–100% means it closed through a band.`],
       ["ATR", "14-day", `${money(l.atr.value)} (${l.atr.pct.toFixed(1)}%)`, `Moves about ${l.atr.pct.toFixed(1)}% a day`,
         "The typical daily range. It sets how wide the support zones are and how far below a level a stop would sit."],
       ["Volume vs. average", "20-day average", `${compact(d.volume[i])} vs ${compact(d.vol_avg20[i])}`, l.volume.label,
