@@ -148,30 +148,26 @@
   function renderHeader() {
     const m = state.data.meta;
     const asOf = $("#asOf");
-    asOf.textContent = `Data as of ${fmtDate(m.as_of)} close`;
-    // count weekdays between the data date and today (New York)
-    const today = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const d = new Date(m.as_of + "T12:00:00");
-    let missed = 0;
-    for (const t = new Date(d); t < today; t.setDate(t.getDate() + 1)) {
-      if (t.toDateString() === d.toDateString()) continue;
-      const wd = t.getDay();
-      if (wd !== 0 && wd !== 6) missed++;
-    }
-    // today's session only counts as missed after the evening refresh window
-    if (today.getDay() !== 0 && today.getDay() !== 6 && today.getHours() < 19 && today.toDateString() !== d.toDateString()) missed--;
-    const stale = missed > 2;
-    asOf.classList.toggle("stale", stale);
+    // New York wall clock: the market's day, not the reader's
+    const nowNY = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const fr = SR.freshness(m.as_of, nowNY);
+    asOf.textContent = `Data as of ${fmtDate(m.as_of)} close` + (fr.state === "pending" ? " · update pending" : "");
+    asOf.classList.toggle("stale", fr.state === "stale");
+    asOf.classList.toggle("pending", fr.state === "pending");
+
     const b = $("#stale");
-    // a one-session lag is usually the price source, not a broken refresh — say which
     const lag = (m.warnings || []).find((w) => /before the expected last close/.test(w));
-    b.hidden = !stale && !lag;
-    b.classList.toggle("info", !stale && !!lag);
-    if (stale) {
-      b.textContent = `Heads up: this data is ${missed} trading sessions old. The daily refresh may have failed — levels below may be out of date.`;
-    } else if (lag) {
-      b.textContent = "The price source has not published the most recent close yet, so this report is one session behind. "
-        + "The next scheduled run picks it up.";
+    b.hidden = fr.state === "current";
+    b.classList.toggle("info", fr.state === "pending");
+    if (fr.state === "stale") {
+      b.textContent = `Heads up: this data is ${fr.behind} trading sessions old. The daily refresh may have failed — the levels below may be out of date.`;
+    } else if (fr.state === "pending" && fr.expectedIsToday) {
+      // the common case: the market has closed but tonight's run has not gone yet
+      b.textContent = "Today's session has closed. This report rebuilds after the close, so today's figures usually appear a few hours later — "
+        + `until then you are looking at the ${fmtDate(m.as_of)} close.`;
+    } else if (fr.state === "pending") {
+      b.textContent = `The ${fmtDate(fr.expected)} close has not been published yet; the next scheduled run should pick it up.`
+        + (lag ? " The price source had not published it when the last run went." : "");
     }
     $("#dataMeta").textContent = `Loaded ${m.rows} sessions (${state.data.dates[0]} to ${m.as_of}) from ${m.source}; generated ${m.generated_utc.replace("T", " ").replace("Z", " UTC")}.` +
       (m.warnings && m.warnings.length ? ` Data notes: ${m.warnings.join("; ")}` : "");

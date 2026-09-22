@@ -561,6 +561,54 @@
     return out;
   }
 
+  /* ------------------------------------------------------------------ freshness */
+
+  /**
+   * The most recent weekday whose US close has passed, as a local-midnight Date.
+   * `nowNY` must carry New York wall-clock time in its local fields.
+   * Market holidays are not known here, so this can point one session further
+   * forward than reality — it drives wording, never a rejection of data.
+   */
+  function lastCompletedSession(nowNY) {
+    const d = new Date(nowNY.getFullYear(), nowNY.getMonth(), nowNY.getDate());
+    if (nowNY.getHours() < 16) d.setDate(d.getDate() - 1); // today has not closed yet
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+    return d;
+  }
+
+  /** Weekdays strictly after `from`, up to and including `to`. */
+  function sessionsBetween(from, to) {
+    let n = 0;
+    const d = new Date(from);
+    for (d.setDate(d.getDate() + 1); d <= to; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() !== 0 && d.getDay() !== 6) n++;
+    }
+    return n;
+  }
+
+  /**
+   * How current a published file is, as a state the page can speak about:
+   *   current  — nothing newer exists to publish
+   *   pending  — a close has happened that the refresh has not published yet
+   *   stale    — far enough behind that a run has probably failed
+   * The old code inferred this from a hard-coded "refresh lands by 19:00" rule,
+   * which said nothing to the reader and went wrong when a run started later.
+   */
+  function freshness(asOf, nowNY) {
+    const [y, mo, da] = asOf.split("-").map(Number);
+    const last = lastCompletedSession(nowNY);
+    const behind = sessionsBetween(new Date(y, mo - 1, da), last);
+    const isToday = last.getDate() === nowNY.getDate() && last.getMonth() === nowNY.getMonth()
+      && last.getFullYear() === nowNY.getFullYear();
+    const pad = (n) => String(n).padStart(2, "0");
+    return {
+      state: behind === 0 ? "current" : behind > 2 ? "stale" : "pending",
+      behind,
+      expected: `${last.getFullYear()}-${pad(last.getMonth() + 1)}-${pad(last.getDate())}`,
+      expectedIsToday: isToday,
+    };
+  }
+
   /** Slice the payload's arrays up to (and including) index `end` — used for backfilling history. */
   function truncate(data, end) {
     const out = { ...data };
@@ -577,5 +625,6 @@
     DEFAULTS, LIMITS, WINDOW_PRESETS, WEIGHTS, TIERS,
     normalize, strengthTier, findPivots, rollingLow, cluster, analyze, labels, trendCall, benchmark,
     volumeProfile, compareWindows, findings, bottomLine, snapshot, diffSnapshots, truncate, fromPayload,
+    lastCompletedSession, sessionsBetween, freshness,
   };
 });

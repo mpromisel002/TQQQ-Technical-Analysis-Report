@@ -2,12 +2,20 @@ name: Refresh TQQQ data
 
 on:
   schedule:
-    # 22:30 UTC on weekdays = 6:30 pm New York in summer, 5:30 pm in winter (after the 4 pm close)
+    # GitHub queues scheduled runs on shared infrastructure and starts them 1-4 hours
+    # late in practice, so no single slot is dependable. Several are used instead:
+    # whichever fires first publishes the close, and the rest find no new session and
+    # exit in about 30 seconds without committing. Actions minutes are free here.
+    #
+    # 21:00 UTC weekdays = 5 pm New York in summer, 4 pm in winter. An hour after the
+    # close, which is long enough for the source to settle the daily bar.
+    - cron: "0 21 * * 1-5"
+    # 22:30 UTC weekdays = 6:30 pm New York in summer, 5:30 pm in winter.
     - cron: "30 22 * * 1-5"
-    # Catch-up run at 11:30 UTC Tue-Sat = 7:30 am New York, before the next open.
-    # Yahoo sometimes has not settled the daily bar by the evening run, which left the
-    # site a session behind until the following evening. This picks that session up.
-    # It exits without committing when the evening run already has the data.
+    # 00:30 UTC Tue-Sat = 8:30 pm New York, the same trading day.
+    - cron: "30 0 * * 2-6"
+    # 11:30 UTC Tue-Sat = 7:30 am New York, before the next open. Final backstop if
+    # every evening slot was delayed past midnight or dropped altogether.
     - cron: "30 11 * * 2-6"
   workflow_dispatch:
     inputs:

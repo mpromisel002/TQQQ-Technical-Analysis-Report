@@ -164,6 +164,54 @@ test("window limits which pivots are used", () => {
   assert.ok(short.pivots.lows.every((i) => i >= 300 - 21));
 });
 
+// freshness drives what the page says about its own data. `nowNY` carries New York
+// wall-clock time in its local fields, which is how app.js builds it.
+const ny = (s) => new Date(s);
+
+test("freshness: nothing newer to publish reads as current", () => {
+  // Tuesday morning, Monday's close published — today has not closed yet
+  assert.equal(SR.freshness("2026-09-21", ny("2026-09-22T10:00")).state, "current");
+  // Tuesday night, Tuesday's close published
+  assert.equal(SR.freshness("2026-09-22", ny("2026-09-22T22:00")).state, "current");
+  // over a weekend Friday's close is still the newest there is
+  assert.equal(SR.freshness("2026-09-18", ny("2026-09-19T12:00")).state, "current");
+  assert.equal(SR.freshness("2026-09-18", ny("2026-09-20T12:00")).state, "current");
+  assert.equal(SR.freshness("2026-09-18", ny("2026-09-21T09:00")).state, "current");
+});
+
+test("freshness: after the close but before the refresh reads as pending", () => {
+  const f = SR.freshness("2026-09-21", ny("2026-09-22T17:05"));
+  assert.equal(f.state, "pending");
+  assert.equal(f.behind, 1);
+  assert.equal(f.expected, "2026-09-22");
+  assert.equal(f.expectedIsToday, true);
+  // 16:00 is the boundary: at 15:59 today has not closed, at 16:00 it has
+  assert.equal(SR.freshness("2026-09-21", ny("2026-09-22T15:59")).state, "current");
+  assert.equal(SR.freshness("2026-09-21", ny("2026-09-22T16:00")).state, "pending");
+});
+
+test("freshness: a missed session is pending, not silently current", () => {
+  // Wednesday morning with Monday's data — Tuesday's run did not publish
+  const f = SR.freshness("2026-09-21", ny("2026-09-23T10:00"));
+  assert.equal(f.state, "pending");
+  assert.equal(f.expected, "2026-09-22");
+  assert.equal(f.expectedIsToday, false);
+});
+
+test("freshness: several sessions behind is stale", () => {
+  const f = SR.freshness("2026-09-18", ny("2026-09-24T17:00"));
+  assert.equal(f.state, "stale");
+  assert.ok(f.behind >= 3);
+});
+
+test("sessionsBetween skips weekends", () => {
+  const d = (s) => { const [y, m, x] = s.split("-").map(Number); return new Date(y, m - 1, x); };
+  assert.equal(SR.sessionsBetween(d("2026-09-21"), d("2026-09-21")), 0);
+  assert.equal(SR.sessionsBetween(d("2026-09-21"), d("2026-09-22")), 1);
+  assert.equal(SR.sessionsBetween(d("2026-09-18"), d("2026-09-20")), 0); // weekend only
+  assert.equal(SR.sessionsBetween(d("2026-09-18"), d("2026-09-21")), 1);
+});
+
 test("bottomLine leads with a headline and stays short", () => {
   const file = path.join(__dirname, "..", "docs", "data", "tqqq.json");
   if (!fs.existsSync(file)) return;

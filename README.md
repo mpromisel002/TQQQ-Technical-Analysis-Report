@@ -254,9 +254,11 @@ Where this one differs: the method is a single auditable file, the window is a c
 ## How the daily refresh works
 
 ```
-GitHub Actions — twice per trading day
-  22:30 UTC Mon-Fri  (6:30pm New York, after the 4pm close)
-  11:30 UTC Tue-Sat  (7:30am New York, catch-up before the next open)
+GitHub Actions — four slots per trading day, first one to find new data wins
+  21:00 UTC Mon-Fri  (5:00pm New York, an hour after the close)
+  22:30 UTC Mon-Fri  (6:30pm New York)
+  00:30 UTC Tue-Sat  (8:30pm New York, same trading day)
+  11:30 UTC Tue-Sat  (7:30am New York, backstop before the next open)
   │
   ├─ pipeline/build.py     download TQQQ + QQQ daily prices
   │                        (yfinance → Yahoo chart API → Tiingo → Alpha Vantage)
@@ -273,8 +275,12 @@ GitHub Actions — twice per trading day
 - If a run fails, the workflow **opens a GitHub issue** (or comments on the existing one). The page also shows the data date in red and displays a banner if the data is more than two sessions old, so a silent failure can't go unnoticed.
 - **Sources are raced on freshness, not just tried in order.** A source that validates is accepted immediately only if it reaches the most recent close; otherwise the remaining sources are tried and the freshest result wins. One provider lagging a session no longer decides what gets published.
 - **The newest bar's close is recovered when the provider lags.** For a while after the bell Yahoo leaves `close` null in its daily array while already reporting that day's close in the quote summary. The pipeline fills it from there — but only once the session is genuinely over and the rest of the bar is complete, so an in-progress price is never written as a close.
-- **The job runs twice per trading day** as a backstop. Whichever run finds nothing new exits cleanly without committing, so the second run is free when the first already succeeded.
-- If every source is still behind when a run publishes, `build.py` records a note like *"data ends 2026-09-17, 1 trading day(s) before the expected last close 2026-09-18"* in the file's metadata. The page shows it as a banner and under **Method & data**. Staleness is stated, never hidden.
+- **The job runs four times per trading day.** GitHub queues scheduled runs on shared infrastructure and starts them 1–4 hours late in practice, so no single slot is dependable. Whichever one first finds a new session publishes it; the others exit in about 30 seconds without committing. A `concurrency` group serialises them, so two runs can never race to push.
+- If every source is still behind when a run publishes, `build.py` records a note like *"data ends 2026-09-17, 1 trading day(s) before the expected last close 2026-09-18"* in the file's metadata, which the page shows under **Method & data**.
+- **The page states its own freshness.** `SR.freshness()` compares the published date against the most recent weekday whose 4pm close has passed and resolves to one of three states:
+  - **current** — nothing newer exists to publish, so no banner.
+  - **pending** — a close has happened that the refresh has not published yet. The date chip reads *"update pending"* and a quiet banner explains that the report rebuilds after the close. This is the normal state between about 4pm and 8pm New York, and it used to look indistinguishable from a broken pipeline.
+  - **stale** — more than two sessions behind, which a market holiday cannot explain. Red banner, and the date chip turns red.
 - On weekends and market holidays the job finds no new session and exits cleanly without committing.
 - **GitHub's cron is best-effort, not a guarantee.** Scheduled runs are queued on shared infrastructure and routinely start 1–2 hours late; under load they can be skipped entirely. That is the reason for the second daily run, and for the staleness banner on the page — neither the schedule nor any single run is treated as reliable on its own.
 - **Scheduled workflows in a public repository are auto-disabled after 60 days of repository inactivity.** Do not assume the daily data commits reset that timer: pushes made by `github-actions[bot]` with the built-in `GITHUB_TOKEN` are widely reported not to count as the activity GitHub looks for. GitHub emails the repository admin before disabling, and re-enabling is one click in the Actions tab — treat that email as the real signal, and push a human commit occasionally if you want to be sure.
