@@ -273,7 +273,8 @@ GitHub Actions — twice per trading day
 - **The job runs twice per trading day** as a backstop. Whichever run finds nothing new exits cleanly without committing, so the second run is free when the first already succeeded.
 - If every source is still behind when a run publishes, `build.py` records a note like *"data ends 2026-09-17, 1 trading day(s) before the expected last close 2026-09-18"* in the file's metadata. The page shows it as a banner and under **Method & data**. Staleness is stated, never hidden.
 - On weekends and market holidays the job finds no new session and exits cleanly without committing.
-- GitHub pauses scheduled workflows after 60 days of repository inactivity; the daily data commits keep the schedule alive.
+- **GitHub's cron is best-effort, not a guarantee.** Scheduled runs are queued on shared infrastructure and routinely start 1–2 hours late; under load they can be skipped entirely. That is the reason for the second daily run, and for the staleness banner on the page — neither the schedule nor any single run is treated as reliable on its own.
+- **Scheduled workflows in a public repository are auto-disabled after 60 days of repository inactivity.** Do not assume the daily data commits reset that timer: pushes made by `github-actions[bot]` with the built-in `GITHUB_TOKEN` are widely reported not to count as the activity GitHub looks for. GitHub emails the repository admin before disabling, and re-enabling is one click in the Actions tab — treat that email as the real signal, and push a human commit occasionally if you want to be sure.
 - The page is plain HTML, CSS and JavaScript with **no external dependencies** — the charts are drawn on a canvas by a small built-in library — so it loads fast and can't break because a CDN changed.
 
 ---
