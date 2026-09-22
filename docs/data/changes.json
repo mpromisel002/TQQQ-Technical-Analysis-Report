@@ -1,10 +1,14 @@
 {
- "as_of": "2026-09-18",
- "previous": "2026-09-17",
+ "as_of": "2026-09-21",
+ "previous": "2026-09-18",
  "items": [
   {
-   "type": "macd",
-   "text": "MACD turned bullish."
+   "type": "new",
+   "text": "Support at $57.59 (1 touch) moved into the top 5."
+  },
+  {
+   "type": "dropped",
+   "text": "Support at $49.94 dropped out of the top list."
   }
  ]
 }
