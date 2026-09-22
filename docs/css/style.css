@@ -101,6 +101,7 @@ main { padding-top: 16px; padding-bottom: 40px; }
 .card-head h2 { margin: 0; }
 .zoom { display: flex; gap: 6px; }
 .banner { background: color-mix(in srgb, var(--danger) 14%, var(--surface-1)); border: 1px solid var(--danger); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
+.banner.info { background: var(--surface-2); border-color: var(--border); color: var(--text-secondary); font-size: 13px; }
 
 /* Key findings: four labelled groups, two columns on a wide screen */
 .findings-groups { columns: 2; column-gap: 30px; }

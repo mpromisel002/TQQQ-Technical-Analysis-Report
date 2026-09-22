@@ -158,8 +158,16 @@
     const stale = missed > 2;
     asOf.classList.toggle("stale", stale);
     const b = $("#stale");
-    b.hidden = !stale;
-    if (stale) b.textContent = `Heads up: this data is ${missed} trading sessions old. The daily refresh may have failed — levels below may be out of date.`;
+    // a one-session lag is usually the price source, not a broken refresh — say which
+    const lag = (m.warnings || []).find((w) => /before the expected last close/.test(w));
+    b.hidden = !stale && !lag;
+    b.classList.toggle("info", !stale && !!lag);
+    if (stale) {
+      b.textContent = `Heads up: this data is ${missed} trading sessions old. The daily refresh may have failed — levels below may be out of date.`;
+    } else if (lag) {
+      b.textContent = "The price source has not published the most recent close yet, so this report is one session behind. "
+        + "The next scheduled run picks it up.";
+    }
     $("#dataMeta").textContent = `Loaded ${m.rows} sessions (${state.data.dates[0]} to ${m.as_of}) from ${m.source}; generated ${m.generated_utc.replace("T", " ").replace("Z", " UTC")}.` +
       (m.warnings && m.warnings.length ? ` Data notes: ${m.warnings.join("; ")}` : "");
   }
