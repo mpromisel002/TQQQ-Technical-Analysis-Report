@@ -56,6 +56,58 @@ def build_payload(tq: pd.DataFrame, qq: pd.DataFrame, source: str, warnings: lis
     }
 
 
+# Tolerances for deciding the source has actually revised a session rather than
+# merely disagreeing in the noise. Prices: 2 basis points, which catches a
+# correction of a couple of cents on a $80 share while ignoring the sub-cent
+# differences that appear when a run falls through to a different source.
+# Volume: 2%, because consolidated volume keeps trickling in after the bell and
+# a small restatement changes nothing about a support level.
+PRICE_TOL = 2e-4
+VOL_TOL = 0.02
+
+
+def revised_fields(prev: dict, tq: pd.DataFrame, qq: pd.DataFrame,
+                   price_tol: float = PRICE_TOL, vol_tol: float = VOL_TOL) -> list[str]:
+    """Fields of the newest published session whose values the source has since moved.
+
+    A session is published within minutes of the close, so the provider may still be
+    settling it. Later runs call this to republish a corrected bar instead of exiting
+    on the date alone. Only the most recent bar is checked: a dividend or split would
+    move older values too, and rewriting history is not this function's job.
+    """
+    as_of = prev.get("meta", {}).get("as_of")
+    dates = prev.get("dates") or []
+    series = prev.get("series") or {}
+    if not as_of or not dates or dates[-1] != as_of:
+        return []
+    ts = pd.Timestamp(as_of)
+    if ts not in tq.index:
+        return []
+
+    moved = []
+
+    def check(name, old, new, tol):
+        if old is None or new is None:
+            return
+        old, new = float(old), float(new)
+        if not (math.isfinite(old) and math.isfinite(new)):
+            return
+        if abs(new - old) > tol * max(abs(old), 1e-9):
+            moved.append(f"{name} {round(old, 4)} -> {round(new, 4)}")
+
+    for col in ("open", "high", "low", "close"):
+        arr = series.get(col) or []
+        if arr:
+            check(col, arr[-1], tq.at[ts, col], price_tol)
+    vol = series.get("volume") or []
+    if vol:
+        check("volume", vol[-1], tq.at[ts, "volume"], vol_tol)
+    qc = series.get("qqq_close") or []
+    if qc and ts in qq.index:
+        check("qqq_close", qc[-1], qq.at[ts, "close"], price_tol)
+    return moved
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv-dir", help="read TQQQ.csv and QQQ.csv from this folder instead of downloading")
@@ -75,8 +127,16 @@ def main(argv=None) -> int:
     if out.exists() and not a.force:
         prev = json.loads(out.read_text())
         if prev["meta"]["as_of"] >= tq.index[-1].date().isoformat():
-            log.info("No new session since %s; nothing to do (holiday or weekend).", prev["meta"]["as_of"])
-            return 3
+            # The schedule publishes minutes after the close, so the newest bar can
+            # still be provisional. While it is the newest completed session, let a
+            # later run replace it if the source has corrected it. Once the next
+            # session closes the bar is left alone, which bounds this to one day.
+            revising = prev["meta"]["as_of"] == expected_last_session().isoformat()
+            revised = revised_fields(prev, tq, qq) if revising else []
+            if not revised:
+                log.info("No new session since %s; nothing to do (holiday or weekend).", prev["meta"]["as_of"])
+                return 3
+            log.info("Republishing %s: source revised %s", prev["meta"]["as_of"], "; ".join(revised))
     # the source can publish a session late; say so rather than quietly serving old data
     last = tq.index[-1].date()
     expected = expected_last_session()

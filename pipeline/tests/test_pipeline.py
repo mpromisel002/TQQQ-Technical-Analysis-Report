@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import sys
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from fetch import (  # noqa: E402
     fill_settled_close, from_csv, sessions_behind, validate,
 )
 from indicators import atr, bollinger, compute_all, drawdown, macd, rsi, sma  # noqa: E402
+import build  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures" / "TQQQ.csv"
 
@@ -158,6 +160,110 @@ def test_fill_settled_close_leaves_a_real_close_alone():
     out = fill_settled_close(_lagging_bar(close=77.0, adjclose=77.0), SETTLED_META,
                              dt.datetime(2026, 9, 21, 20, 35, tzinfo=NY))
     assert out["close"].iloc[-1] == pytest.approx(77.0)
+
+
+# --------------------------------------------------------------- revised sessions
+def _published(df, last_close=None, last_vol=None):
+    """A minimal tqqq.json-shaped dict built from `df`, optionally with the newest
+    bar's close or volume nudged to stand in for a value the source has since moved."""
+    close = [float(v) for v in df["close"]]
+    vol = [float(v) for v in df["volume"]]
+    if last_close is not None:
+        close[-1] = last_close
+    if last_vol is not None:
+        vol[-1] = last_vol
+    return {
+        "meta": {"as_of": df.index[-1].date().isoformat()},
+        "dates": [d.date().isoformat() for d in df.index],
+        "series": {
+            "open": [float(v) for v in df["open"]], "high": [float(v) for v in df["high"]],
+            "low": [float(v) for v in df["low"]], "close": close, "volume": vol,
+        },
+    }
+
+
+def test_revised_fields_silent_when_nothing_moved(df):
+    assert build.revised_fields(_published(df), df, df) == []
+
+
+def test_revised_fields_catches_a_corrected_close(df):
+    published = _published(df, last_close=float(df["close"].iloc[-1]) * 1.002)  # 20bp off
+    moved = build.revised_fields(published, df, df)
+    assert len(moved) == 1 and moved[0].startswith("close ")
+
+
+def test_revised_fields_ignores_sub_tolerance_price_noise(df):
+    # a hair under the 2bp threshold: different sources rounding, not a correction
+    published = _published(df, last_close=float(df["close"].iloc[-1]) * 1.0001)
+    assert build.revised_fields(published, df, df) == []
+
+
+def test_revised_fields_ignores_the_usual_volume_trickle(df):
+    published = _published(df, last_vol=float(df["volume"].iloc[-1]) * 1.01)  # 1%
+    assert build.revised_fields(published, df, df) == []
+
+
+def test_revised_fields_catches_a_volume_restatement(df):
+    published = _published(df, last_vol=float(df["volume"].iloc[-1]) * 1.05)  # 5%
+    moved = build.revised_fields(published, df, df)
+    assert len(moved) == 1 and moved[0].startswith("volume ")
+
+
+def test_revised_fields_only_looks_at_the_newest_bar(df):
+    published = _published(df)
+    published["series"]["close"][5] = 1.0  # an old bar, wildly wrong
+    assert build.revised_fields(published, df, df) == []
+
+
+def test_revised_fields_skips_a_payload_that_ends_earlier(df):
+    published = _published(df.iloc[:-1])  # published through the previous session
+    assert build.revised_fields(published, df, df) == []
+
+
+def test_build_republishes_a_revised_session(tmp_path, monkeypatch, df):
+    """End to end: a second run exits 3, but republishes once the bar has moved."""
+    import shutil
+    src = tmp_path / "csv"
+    src.mkdir()
+    for sym in ("TQQQ", "QQQ"):
+        shutil.copy(FIXTURE, src / f"{sym}.csv")
+    out = tmp_path / "tqqq.json"
+    argv = ["--csv-dir", str(src), "--out", str(out)]
+
+    assert build.main(argv + ["--force"]) == 0
+    assert build.main(argv) == 3, "unchanged data must not republish"
+
+    # pretend the fixture's last session is the newest completed one, then tamper
+    # the published close as a provider correction would
+    last = df.index[-1].date()
+    monkeypatch.setattr(build, "expected_last_session", lambda *a, **k: last)
+    payload = json.loads(out.read_text())
+    original = payload["series"]["close"][-1]
+    payload["series"]["close"][-1] = round(original * 1.01, 4)
+    out.write_text(json.dumps(payload))
+
+    assert build.main(argv) == 0, "a moved close must republish"
+    assert json.loads(out.read_text())["series"]["close"][-1] == pytest.approx(original)
+
+
+def test_build_leaves_an_older_session_alone(tmp_path, monkeypatch, df):
+    """Once the next session has closed, the published bar is no longer revisable."""
+    import shutil
+    src = tmp_path / "csv"
+    src.mkdir()
+    for sym in ("TQQQ", "QQQ"):
+        shutil.copy(FIXTURE, src / f"{sym}.csv")
+    out = tmp_path / "tqqq.json"
+    argv = ["--csv-dir", str(src), "--out", str(out)]
+    assert build.main(argv + ["--force"]) == 0
+
+    later = df.index[-1].date() + dt.timedelta(days=7)
+    monkeypatch.setattr(build, "expected_last_session", lambda *a, **k: later)
+    payload = json.loads(out.read_text())
+    payload["series"]["close"][-1] = round(float(payload["series"]["close"][-1]) * 1.01, 4)
+    out.write_text(json.dumps(payload))
+
+    assert build.main(argv) == 3, "a stale session must not be rewritten"
 
 
 def test_sma_and_bollinger():

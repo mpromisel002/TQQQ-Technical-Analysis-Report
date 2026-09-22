@@ -95,7 +95,13 @@ jobs:
             exit 0
           fi
           AS_OF=$(python -c "import json;print(json.load(open('docs/data/tqqq.json'))['meta']['as_of'])")
-          git commit -m "Data refresh: TQQQ as of ${AS_OF}"
+          PREV=$(git show HEAD:docs/data/tqqq.json | python -c "import json,sys;print(json.load(sys.stdin)['meta']['as_of'])")
+          # same session republished = the source corrected a bar we had already shipped
+          if [ "$AS_OF" = "$PREV" ]; then
+            git commit -m "Data revision: TQQQ as of ${AS_OF}"
+          else
+            git commit -m "Data refresh: TQQQ as of ${AS_OF}"
+          fi
           git push
 
       - name: Open an issue if the refresh failed
