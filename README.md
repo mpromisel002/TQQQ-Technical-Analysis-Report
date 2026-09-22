@@ -251,7 +251,9 @@ Where this one differs: the method is a single auditable file, the window is a c
 ## How the daily refresh works
 
 ```
-GitHub Actions — weekdays at 22:30 UTC (after the 4pm New York close)
+GitHub Actions — twice per trading day
+  22:30 UTC Mon-Fri  (6:30pm New York, after the 4pm close)
+  11:30 UTC Tue-Sat  (7:30am New York, catch-up before the next open)
   │
   ├─ pipeline/build.py     download TQQQ + QQQ daily prices
   │                        (yfinance → Yahoo chart API → Tiingo → Alpha Vantage)
@@ -266,6 +268,8 @@ GitHub Actions — weekdays at 22:30 UTC (after the 4pm New York close)
 - Prices are **adjusted for splits and dividends**. About two years of history are loaded so the 200-day average is available across the full 12-month view.
 - **Nothing publishes unless the data passes validation:** no missing values, no zero-volume days, highs never below lows, no gaps in the trading calendar, and no single-day move above 40% (which usually means a bad split adjustment). If a check fails, the previous good file stays live.
 - If a run fails, the workflow **opens a GitHub issue** (or comments on the existing one). The page also shows the data date in red and displays a banner if the data is more than two sessions old, so a silent failure can't go unnoticed.
+- **The job runs twice per trading day** because the evening run sometimes finds the data source has not settled the day's bar yet. When that happens the evening run publishes the previous close and the next morning's catch-up run picks up the missing session. Whichever run finds nothing new exits cleanly without committing, so the second run is free when the first already succeeded.
+- If the source is still a session behind when a run publishes, `build.py` records a note like *"data ends 2026-09-17, 1 trading day(s) before the expected last close"* in the file's metadata, which the page shows under **Method & data**. Staleness is stated, never hidden.
 - On weekends and market holidays the job finds no new session and exits cleanly without committing.
 - GitHub pauses scheduled workflows after 60 days of repository inactivity; the daily data commits keep the schedule alive.
 - The page is plain HTML, CSS and JavaScript with **no external dependencies** — the charts are drawn on a canvas by a small built-in library — so it loads fast and can't break because a CDN changed.

@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fetch import NY, DataError, fetch  # noqa: E402
+from fetch import NY, DataError, expected_last_session, fetch, sessions_behind  # noqa: E402
 from indicators import compute_all  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,6 +77,16 @@ def main(argv=None) -> int:
         if prev["meta"]["as_of"] >= tq.index[-1].date().isoformat():
             log.info("No new session since %s; nothing to do (holiday or weekend).", prev["meta"]["as_of"])
             return 3
+    # the source can publish a session late; say so rather than quietly serving old data
+    last = tq.index[-1].date()
+    expected = expected_last_session()
+    behind = sessions_behind(last, expected)
+    if behind:
+        msg = (f"data ends {last}, {behind} trading day(s) before the expected last close "
+               f"{expected}; the source had not published it yet")
+        log.warning("%s", msg)
+        warn = warn + [msg]
+
     payload = build_payload(tq, qq, src, warn + warn_q)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".tmp")

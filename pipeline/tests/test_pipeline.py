@@ -7,7 +7,10 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fetch import NY, DataError, drop_incomplete_session, from_csv, validate  # noqa: E402
+from fetch import (  # noqa: E402
+    NY, DataError, drop_incomplete_session, drop_placeholder_rows, expected_last_session,
+    from_csv, sessions_behind, validate,
+)
 from indicators import atr, bollinger, compute_all, drawdown, macd, rsi, sma  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures" / "TQQQ.csv"
@@ -61,6 +64,42 @@ def test_drop_incomplete_session():
     after = dt.datetime(2026, 9, 16, 18, 0, tzinfo=NY)
     assert len(drop_incomplete_session(d, during)) == 1
     assert len(drop_incomplete_session(d, after)) == 2
+
+
+def test_drop_placeholder_rows_removes_unsettled_bar(df):
+    """Yahoo publishes the current session with null OHLC; it must not fail validation."""
+    blank = pd.DataFrame({c: [np.nan] * 4 + [0.0] for c in df.columns}).iloc[[0]]
+    blank.index = pd.to_datetime([df.index[-1] + pd.Timedelta(days=1)])
+    polluted = pd.concat([df, blank])
+    with pytest.raises(DataError, match="missing"):
+        validate(polluted, "TQQQ")
+    cleaned = drop_placeholder_rows(polluted)
+    assert len(cleaned) == len(df)
+    assert isinstance(validate(cleaned, "TQQQ"), list)
+
+
+def test_drop_placeholder_rows_keeps_real_bars(df):
+    assert len(drop_placeholder_rows(df)) == len(df)
+
+
+@pytest.mark.parametrize("when,expected", [
+    ("2026-09-18 20:28", "2026-09-18"),  # Friday evening, after the close
+    ("2026-09-18 09:00", "2026-09-17"),  # Friday morning, before it
+    ("2026-09-19 12:00", "2026-09-18"),  # Saturday  -> Friday
+    ("2026-09-20 12:00", "2026-09-18"),  # Sunday    -> Friday
+    ("2026-09-21 09:00", "2026-09-18"),  # Monday before the close -> Friday
+    ("2026-09-21 20:30", "2026-09-21"),  # Monday evening
+])
+def test_expected_last_session(when, expected):
+    now = dt.datetime.fromisoformat(when).replace(tzinfo=NY)
+    assert expected_last_session(now).isoformat() == expected
+
+
+def test_sessions_behind_counts_weekdays_only():
+    assert sessions_behind(dt.date(2026, 9, 17), dt.date(2026, 9, 17)) == 0
+    assert sessions_behind(dt.date(2026, 9, 17), dt.date(2026, 9, 18)) == 1
+    assert sessions_behind(dt.date(2026, 9, 17), dt.date(2026, 9, 21)) == 2  # weekend skipped
+    assert sessions_behind(dt.date(2026, 9, 18), dt.date(2026, 9, 20)) == 0  # weekend only
 
 
 def test_sma_and_bollinger():

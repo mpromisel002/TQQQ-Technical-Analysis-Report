@@ -123,6 +123,44 @@ def drop_incomplete_session(df: pd.DataFrame, now: dt.datetime | None = None) ->
     return df
 
 
+def drop_placeholder_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop bars the source published with no price.
+
+    Yahoo emits a row for a session it has not settled yet, with the OHLC null and
+    volume zero. Left in place it fails validation and knocks out whichever source
+    produced it, so every source gets the same treatment here.
+    """
+    if "close" not in df:
+        return df
+    return df[df["close"].notna()]
+
+
+def expected_last_session(now: dt.datetime | None = None) -> dt.date:
+    """The most recent weekday whose US close has passed.
+
+    Market holidays are not known here, so this can point one session further
+    forward than reality on a holiday. It is used to warn about staleness, never
+    to reject data, so erring forward only risks a spurious note.
+    """
+    now = (now or dt.datetime.now(NY)).astimezone(NY)
+    d = now.date()
+    if now.time() < dt.time(16, 15):
+        d -= dt.timedelta(days=1)
+    while d.weekday() >= 5:  # Saturday = 5, Sunday = 6
+        d -= dt.timedelta(days=1)
+    return d
+
+
+def sessions_behind(last: dt.date, expected: dt.date) -> int:
+    """Count weekdays after `last` up to and including `expected`."""
+    n, d = 0, last + dt.timedelta(days=1)
+    while d <= expected:
+        if d.weekday() < 5:
+            n += 1
+        d += dt.timedelta(days=1)
+    return n
+
+
 def validate(df: pd.DataFrame, symbol: str, max_jump: float = 0.40) -> list[str]:
     """Raise DataError on problems that would create fake levels; return soft warnings."""
     if len(df) < 260:
@@ -160,6 +198,7 @@ def fetch(symbol: str, period: str = "2y", csv: str | None = None) -> tuple[pd.D
         try:
             df = fn(symbol, period).astype(float).sort_index()
             df = df[~df.index.duplicated(keep="last")]
+            df = drop_placeholder_rows(df)
             df = drop_incomplete_session(df)
             warnings = validate(df, symbol)
             log.info("%s: %d rows from %s", symbol, len(df), name)

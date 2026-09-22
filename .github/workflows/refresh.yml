@@ -4,6 +4,11 @@ on:
   schedule:
     # 22:30 UTC on weekdays = 6:30 pm New York in summer, 5:30 pm in winter (after the 4 pm close)
     - cron: "30 22 * * 1-5"
+    # Catch-up run at 11:30 UTC Tue-Sat = 7:30 am New York, before the next open.
+    # Yahoo sometimes has not settled the daily bar by the evening run, which left the
+    # site a session behind until the following evening. This picks that session up.
+    # It exits without committing when the evening run already has the data.
+    - cron: "30 11 * * 2-6"
   workflow_dispatch:
     inputs:
       force:
