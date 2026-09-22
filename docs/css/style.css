@@ -103,6 +103,22 @@ main { padding-top: 16px; padding-bottom: 40px; }
 .banner { background: color-mix(in srgb, var(--danger) 14%, var(--surface-1)); border: 1px solid var(--danger); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
 .banner.info { background: var(--surface-2); border-color: var(--border); color: var(--text-secondary); font-size: 13px; }
 
+/* Bottom line: the headline and its supporting lines, read before anything else */
+.bl-headline { font-size: 19px; line-height: 1.45; margin: 0 0 14px; max-width: 72ch; letter-spacing: -0.005em; }
+.bl-headline.skeleton { color: var(--text-muted); font-size: 15px; }
+.bl-rows { margin: 0; display: grid; gap: 0; max-width: 92ch; }
+.bl-rows > div { display: grid; grid-template-columns: 124px 1fr; gap: 14px; padding: 9px 0; border-top: 1px solid var(--grid); align-items: baseline; }
+.bl-rows dt { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
+.bl-rows dd { margin: 0; font-size: 14.5px; line-height: 1.5; }
+.all-findings { margin-top: 16px; }
+.all-findings > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; color: var(--text-secondary); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; }
+.all-findings > summary::-webkit-details-marker { display: none; }
+.all-findings > summary::after { content: "▾"; font-size: 10px; }
+.all-findings[open] > summary::after { content: "▴"; }
+.all-findings > summary:hover { background: var(--surface-1); color: var(--text-primary); }
+
 /* Key findings: four labelled groups, two columns on a wide screen */
 .findings-groups { columns: 2; column-gap: 30px; }
 .fgroup { break-inside: avoid; margin-bottom: 15px; }
@@ -209,6 +225,8 @@ tr.foot-row td { white-space: normal; border-bottom: 0; font-size: 12.5px; }
 @media (max-width: 1000px) {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .findings-groups { columns: 1; }
+  .bl-headline { font-size: 17px; }
+  .bl-rows > div { grid-template-columns: 1fr; gap: 2px; }
   .grid2 { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {

@@ -101,6 +101,11 @@
       state.opts = SR.normalize({ window: state.opts.window });
       update({ keepView: true });
     });
+    const det = $("#allFindings");
+    try { det.open = localStorage.getItem("findingsOpen") === "1"; } catch (e) { /* storage unavailable */ }
+    det.addEventListener("toggle", () => {
+      try { localStorage.setItem("findingsOpen", det.open ? "1" : "0"); } catch (e) { /* storage unavailable */ }
+    });
     $$(".chips input[data-pane]").forEach((cb) => {
       cb.checked = !!state.panes[cb.dataset.pane];
       cb.addEventListener("change", () => {
@@ -172,6 +177,15 @@
       (m.warnings && m.warnings.length ? ` Data notes: ${m.warnings.join("; ")}` : "");
   }
 
+  function renderBottomLine() {
+    const bl = SR.bottomLine(state.data, state.res, state.lab, money, fmtDate);
+    const head = $("#blHeadline");
+    head.innerHTML = bl.headline;
+    head.classList.remove("skeleton");
+    $("#blRows").innerHTML = bl.rows
+      .map((r) => `<div><dt>${esc(r.label)}</dt><dd>${r.html}</dd></div>`).join("");
+  }
+
   function renderFindings() {
     const items = SR.findings(state.data, state.res, state.lab, money, fmtDate, { runs: state.runs });
     const groups = [];
@@ -183,7 +197,8 @@
         <h3>${esc(g.name)}</h3>
         <ul>${g.items.map((x) => `<li>${x.html}</li>`).join("")}</ul>
       </section>`).join("");
-    $("#winLabel").textContent = `· ${winName(state.opts.window)} window · ${items.length} findings`;
+    $("#winLabel").textContent = `· ${winName(state.opts.window)} window`;
+    $("#findingsSummary").textContent = `All ${items.length} findings`;
   }
 
   function kpi(label, value, delta, cls = "") {
@@ -580,6 +595,7 @@
     state.runs = SR.compareWindows(state.data, state.opts); // shared by the findings and the window chart
     syncControls();
     writeUrl();
+    renderBottomLine();
     renderFindings();
     renderKpis();
     renderTable();
@@ -608,7 +624,7 @@
       update();
     } catch (e) {
       console.error(e);
-      $("#findings").innerHTML = `<li>Could not load the data file (${esc(e.message)}). Please try again later.</li>`;
+      $("#blHeadline").textContent = `Could not load the data file (${esc(e.message)}). Please try again later.`;
       $("#asOf").textContent = "Data unavailable";
     }
   }

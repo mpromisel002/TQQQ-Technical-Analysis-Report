@@ -164,6 +164,36 @@ test("window limits which pivots are used", () => {
   assert.ok(short.pivots.lows.every((i) => i >= 300 - 21));
 });
 
+test("bottomLine leads with a headline and stays short", () => {
+  const file = path.join(__dirname, "..", "docs", "data", "tqqq.json");
+  if (!fs.existsSync(file)) return;
+  const d = SR.fromPayload(JSON.parse(fs.readFileSync(file, "utf8")));
+  for (const w of Object.values(SR.WINDOW_PRESETS)) {
+    const res = SR.analyze(d, { window: w });
+    const bl = SR.bottomLine(d, res, SR.labels(d, res));
+    assert.ok(bl.headline && bl.headline.length < 220, "headline is one sentence");
+    // the summary must stay a summary: far shorter than the full findings list
+    assert.ok(bl.rows.length >= 3 && bl.rows.length <= 5, `got ${bl.rows.length} rows`);
+    assert.ok(bl.rows.every((r) => r.label && r.html));
+    const all = [bl.headline, ...bl.rows.map((r) => r.html)].join(" ");
+    assert.ok(!/undefined|NaN/.test(all));
+    assert.deepEqual(bl.rows.map((r) => r.label).slice(-3), ["Trend", "Momentum", "Risk"]);
+  }
+});
+
+test("bottomLine says so plainly when there is no floor to report", () => {
+  const d = synth(Array.from({ length: 40 }, (_, i) => 50 + i)); // straight up: no swing lows
+  Object.assign(d, {
+    rsi14: Array(40).fill(65), macd: Array(40).fill(1), macd_signal: Array(40).fill(0.5),
+    macd_hist: Array(40).fill(0.5), bb_upper: Array(40).fill(95), bb_lower: Array(40).fill(80),
+    vol_avg20: Array(40).fill(1000), drawdown: Array(40).fill(-2), sma20: Array(40).fill(85),
+  });
+  const res = SR.analyze(d, { window: 21 });
+  const bl = SR.bottomLine(d, res, SR.labels(d, res));
+  assert.match(bl.headline, /No floor has formed below it/);
+  assert.ok(!/undefined|NaN/.test(bl.headline + bl.rows.map((r) => r.html).join(" ")));
+});
+
 test("Bollinger label distinguishes closing through a band from nearing one", () => {
   const file = path.join(__dirname, "..", "docs", "data", "tqqq.json");
   if (!fs.existsSync(file)) return;

@@ -66,9 +66,14 @@
   <div id="stale" class="banner" hidden></div>
 
   <section class="card findings" aria-labelledby="h-find">
-    <h2 id="h-find">Key findings <span class="muted" id="winLabel"></span></h2>
-    <p class="help lede">Everything the report found, recalculated for the window you pick. Support levels first, then the trend and momentum readings that decide whether those levels are likely to matter.</p>
-    <div id="findings" class="findings-groups"><p class="skeleton">Loading data…</p></div>
+    <h2 id="h-find">Bottom line <span class="muted" id="winLabel"></span></h2>
+    <p id="blHeadline" class="bl-headline skeleton">Loading data…</p>
+    <dl id="blRows" class="bl-rows"></dl>
+    <details class="all-findings" id="allFindings">
+      <summary id="findingsSummary">All findings</summary>
+      <p class="help lede">The full picture behind the summary above, recalculated for the window you pick: support levels first, then the trend, momentum and risk readings that decide whether those levels are likely to matter.</p>
+      <div id="findings" class="findings-groups"></div>
+    </details>
   </section>
 
   <section aria-label="Key numbers" class="kpis" id="kpis"></section>

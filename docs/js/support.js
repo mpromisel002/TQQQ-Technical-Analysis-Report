@@ -457,6 +457,61 @@
     return out;
   }
 
+  /**
+   * The bottom line: one headline plus a handful of labelled lines, written for
+   * someone who will read this and nothing else. Everything here is also in
+   * findings(); this is the summary that goes above it, not a second analysis.
+   */
+  function bottomLine(data, res, lab, fmt, fmtDate) {
+    const f = fmt || ((v) => (v == null || !isFinite(v) ? "–" : "$" + v.toFixed(2)));
+    const whole = (v) => (v == null || !isFinite(v) ? "–" : Math.abs(v).toFixed(0) + "%");
+    const s = res.supports[0];
+    const nxt = res.supports[1];
+    const rows = [];
+
+    const headline = !s
+      ? `TQQQ closed at <b>${f(res.price)}</b>. <b>No floor has formed below it</b> in this window — there have not been enough swing lows to find one.`
+      : s.inZone
+        ? `TQQQ closed at <b>${f(res.price)}</b> and is <b>sitting on its nearest floor</b>, ${f(s.low)}–${f(s.high)}. This is the level being tested right now.`
+        : `TQQQ closed at <b>${f(res.price)}</b>, about <b>${whole(s.distancePct)} above its nearest floor</b>, around ${f(s.price)}.`;
+
+    if (s) {
+      const days = Math.abs(res.price - s.price) / res.atr;
+      rows.push({ label: "Nearest floor", html:
+        `<b>${f(s.low)}–${f(s.high)}</b> — ${s.inZone ? "price is inside it now" : `${whole(s.distancePct)} below, roughly ${days.toFixed(0)} typical day${days < 1.5 ? "" : "s"} of movement away`}. ` +
+        `Buyers have turned price higher there ${s.touches} time${s.touches > 1 ? "s" : ""}, which makes it a <b>${s.strength.toLowerCase()}</b> level.` });
+    } else if (res.fallbacks.length) {
+      rows.push({ label: "Nearest floor", html:
+        `None confirmed. The rough guides are ${res.fallbacks.map((x) => `the ${x.label.toLowerCase()} at ${f(x.price)}`).join(" and ")} — or switch to a longer window.` });
+    }
+
+    if (s && nxt) {
+      rows.push({ label: "If that breaks", html:
+        `The next floor down is <b>${f(nxt.price)}</b>, a further ${whole((s.price / nxt.price - 1) * 100)} lower. Nothing in between has been defended.` });
+    }
+
+    const t = lab.trend;
+    rows.push({ label: "Trend", html: `<b>${t.label}</b> — ` + {
+      Uptrend: "price is above its 50 and 200-day averages and its lows keep stepping higher.",
+      Downtrend: "price is below its 50 and 200-day averages and its lows keep stepping lower.",
+      Mixed: "the three trend checks disagree, so the floors matter more than the trend right now.",
+    }[t.label] });
+
+    const rv = lab.rsi.value;
+    const mom = rv >= 70 ? "stretched to the upside" : rv <= 30 ? "stretched to the downside"
+      : rv >= 60 ? "strong, and getting stretched" : rv <= 40 ? "weak" : "neutral";
+    let now = `<b>${mom.charAt(0).toUpperCase() + mom.slice(1)}</b> (RSI ${rv.toFixed(0)}, MACD ${lab.macd.label.toLowerCase()}).`;
+    if (lab.bollinger.label === "Above upper band") now += " Price closed above its normal 20-day range, so a pause or pullback would be unremarkable.";
+    else if (lab.bollinger.label === "Below lower band") now += " Price closed below its normal 20-day range, so a bounce would be unremarkable.";
+    rows.push({ label: "Momentum", html: now });
+
+    rows.push({ label: "Risk", html:
+      `TQQQ moves about <b>${lab.atr.pct.toFixed(1)}% on a typical day</b> and targets 3× the Nasdaq-100's daily move. ` +
+      `A level can be broken and reclaimed inside one session, so treat these as areas, not lines.` });
+
+    return { headline, rows };
+  }
+
   /** Compact snapshot used for the daily history files and "what changed". */
   function snapshot(data, opts) {
     const res = analyze(data, opts);
@@ -521,6 +576,6 @@
   return {
     DEFAULTS, LIMITS, WINDOW_PRESETS, WEIGHTS, TIERS,
     normalize, strengthTier, findPivots, rollingLow, cluster, analyze, labels, trendCall, benchmark,
-    volumeProfile, compareWindows, findings, snapshot, diffSnapshots, truncate, fromPayload,
+    volumeProfile, compareWindows, findings, bottomLine, snapshot, diffSnapshots, truncate, fromPayload,
   };
 });

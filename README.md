@@ -76,7 +76,8 @@ No prior charting knowledge needed. These are the only terms the report uses.
 
 | Section | What it shows | Why it's there |
 |---|---|---|
-| **Key findings** | 10+ plain-language findings in four groups — support levels, trend, momentum & volatility, risk & leverage | The whole report without reading a chart. Every number is recomputed for the window you pick; see [What the key findings cover](#what-the-key-findings-cover) |
+| **Bottom line** | A one-sentence headline, then five labelled lines: nearest floor, what happens if it breaks, trend, momentum, risk | The answer before the evidence. A reader who stops here still leaves with the number that matters |
+| **All findings** (collapsed) | 10+ plain-language findings in four groups — support levels, trend, momentum & volatility, risk & leverage | The full picture for anyone who wants it, one click away; see [What the key findings cover](#what-the-key-findings-cover) |
 | **KPI strip** | Last close, trend, nearest support, strongest support, RSI, distance below the 12-month high | The six numbers most decisions start from |
 | **Price & support zones** | Candlestick chart with shaded green support bands, swing-low markers, moving averages, and optional volume / RSI / MACD / drawdown panels | The main visualisation — see [How to read the main chart](#how-to-read-the-main-chart) |
 | **Support levels in detail** | A table of S1–S5: zone price, zone range, distance below price, times held, last tested, strength and status | The numbers behind the chart, with a definition list underneath every column |
@@ -91,6 +92,8 @@ Two download buttons sit in the toolbar: **Download CSV** (the levels table plus
 ---
 
 ## What the key findings cover
+
+The card leads with a **bottom line** — one headline sentence and five labelled lines (nearest floor, if that breaks, trend, momentum, risk) — and keeps the full findings list collapsed behind a toggle, so the summary is never buried under the evidence. The toggle state is remembered per browser.
 
 The findings are generated from the data on every load — nothing is written by hand — and they re-run whenever you change the window or the method settings. A normal window produces **14 findings** in four groups; a window too short to contain much structure still produces at least ten, with the support findings saying so plainly rather than going quiet.
 
