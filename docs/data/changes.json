@@ -1,14 +1,10 @@
 {
- "as_of": "2026-09-17",
- "previous": "2026-09-16",
+ "as_of": "2026-09-18",
+ "previous": "2026-09-17",
  "items": [
   {
-   "type": "reclaimed",
-   "text": "Price climbed back above $70.39; that zone is acting as support again."
-  },
-  {
-   "type": "dropped",
-   "text": "Support at $57.59 dropped out of the top list."
+   "type": "macd",
+   "text": "MACD turned bullish."
   }
  ]
 }
