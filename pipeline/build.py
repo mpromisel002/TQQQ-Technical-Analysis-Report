@@ -83,7 +83,7 @@ def main(argv=None) -> int:
     behind = sessions_behind(last, expected)
     if behind:
         msg = (f"data ends {last}, {behind} trading day(s) before the expected last close "
-               f"{expected}; the source had not published it yet")
+               f"{expected}")
         log.warning("%s", msg)
         warn = warn + [msg]
 

@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fetch import (  # noqa: E402
     NY, DataError, drop_incomplete_session, drop_placeholder_rows, expected_last_session,
-    from_csv, sessions_behind, validate,
+    fill_settled_close, from_csv, sessions_behind, validate,
 )
 from indicators import atr, bollinger, compute_all, drawdown, macd, rsi, sma  # noqa: E402
 
@@ -100,6 +100,64 @@ def test_sessions_behind_counts_weekdays_only():
     assert sessions_behind(dt.date(2026, 9, 17), dt.date(2026, 9, 18)) == 1
     assert sessions_behind(dt.date(2026, 9, 17), dt.date(2026, 9, 21)) == 2  # weekend skipped
     assert sessions_behind(dt.date(2026, 9, 18), dt.date(2026, 9, 20)) == 0  # weekend only
+
+
+# Yahoo leaves the newest bar's close null for a while after the bell while already
+# reporting it in the quote summary. These cover filling it back in safely.
+SETTLED_META = {
+    "regularMarketPrice": 78.91,
+    "regularMarketTime": int(dt.datetime(2026, 9, 21, 16, 0, tzinfo=NY).timestamp()),
+}
+
+
+def _lagging_bar(close=np.nan, adjclose=np.nan, volume=53473068):
+    return pd.DataFrame(
+        {"open": [71.92, 74.85], "high": [72.78, 79.49], "low": [70.81, 74.84],
+         "close": [72.64, close], "volume": [40624600, volume], "adjclose": [72.64, adjclose]},
+        index=pd.to_datetime(["2026-09-18", "2026-09-21"]),
+    )
+
+
+def test_fill_settled_close_after_the_bell():
+    out = fill_settled_close(_lagging_bar(), SETTLED_META,
+                             dt.datetime(2026, 9, 21, 20, 35, tzinfo=NY))
+    assert out["close"].iloc[-1] == pytest.approx(78.91)
+    assert out["adjclose"].iloc[-1] == pytest.approx(78.91)  # newest bar needs no adjustment
+
+
+def test_fill_settled_close_next_morning():
+    out = fill_settled_close(_lagging_bar(), SETTLED_META,
+                             dt.datetime(2026, 9, 22, 7, 30, tzinfo=NY))
+    assert out["close"].iloc[-1] == pytest.approx(78.91)
+
+
+def test_fill_settled_close_refuses_mid_session():
+    """An in-progress price must never be written as a close."""
+    live = dict(SETTLED_META,
+                regularMarketTime=int(dt.datetime(2026, 9, 21, 11, 0, tzinfo=NY).timestamp()))
+    out = fill_settled_close(_lagging_bar(), live,
+                             dt.datetime(2026, 9, 21, 11, 0, tzinfo=NY))
+    assert pd.isna(out["close"].iloc[-1])
+
+
+def test_fill_settled_close_refuses_when_summary_is_a_different_session():
+    stale = dict(SETTLED_META,
+                 regularMarketTime=int(dt.datetime(2026, 9, 18, 16, 0, tzinfo=NY).timestamp()))
+    out = fill_settled_close(_lagging_bar(), stale,
+                             dt.datetime(2026, 9, 21, 20, 35, tzinfo=NY))
+    assert pd.isna(out["close"].iloc[-1])
+
+
+def test_fill_settled_close_refuses_an_incomplete_bar():
+    out = fill_settled_close(_lagging_bar(volume=np.nan), SETTLED_META,
+                             dt.datetime(2026, 9, 21, 20, 35, tzinfo=NY))
+    assert pd.isna(out["close"].iloc[-1])
+
+
+def test_fill_settled_close_leaves_a_real_close_alone():
+    out = fill_settled_close(_lagging_bar(close=77.0, adjclose=77.0), SETTLED_META,
+                             dt.datetime(2026, 9, 21, 20, 35, tzinfo=NY))
+    assert out["close"].iloc[-1] == pytest.approx(77.0)
 
 
 def test_sma_and_bollinger():

@@ -49,6 +49,39 @@ def from_yfinance(symbol: str, period: str = "2y") -> pd.DataFrame:
     return df[COLS]
 
 
+def fill_settled_close(df: pd.DataFrame, meta: dict, now: dt.datetime | None = None) -> pd.DataFrame:
+    """Fill the newest bar's close from the quote summary when the array lags.
+
+    For a while after the bell Yahoo leaves `close` (and `adjclose`) null in the
+    daily array while already reporting the same number as `meta.regularMarketPrice`.
+    Dropping that bar is what kept this report a session behind. The fill only
+    happens once the session is genuinely over, so an in-progress price is never
+    written as a close, and only when the rest of the bar is complete.
+
+    `regularMarketPrice` is the regular-session close; `fulldayPrice` (post-market)
+    is deliberately not used.
+    """
+    if not len(df) or "close" not in df:
+        return df
+    price, ts = meta.get("regularMarketPrice"), meta.get("regularMarketTime")
+    if price is None or ts is None or pd.notna(df["close"].iloc[-1]):
+        return df
+    last = df.index[-1]
+    if dt.datetime.fromtimestamp(ts, NY).date() != last.date():
+        return df  # the summary is about a different session than the last bar
+    now = (now or dt.datetime.now(NY)).astimezone(NY)
+    if now.date() == last.date() and now.time() < dt.time(16, 15):
+        return df  # session still running — that price is not a close yet
+    if df.loc[last, [c for c in COLS if c != "close"]].isna().any():
+        return df  # rest of the bar is incomplete; let it be dropped instead
+    df = df.copy()
+    df.loc[last, "close"] = float(price)
+    if "adjclose" in df and pd.isna(df.loc[last, "adjclose"]):
+        df.loc[last, "adjclose"] = float(price)  # newest bar needs no adjustment
+    log.info("filled %s close from the quote summary (%.2f)", last.date(), price)
+    return df
+
+
 def from_yahoo_chart(symbol: str, period: str = "2y") -> pd.DataFrame:
     import requests
 
@@ -62,6 +95,7 @@ def from_yahoo_chart(symbol: str, period: str = "2y") -> pd.DataFrame:
     idx = pd.to_datetime([dt.datetime.utcfromtimestamp(t + off).date() for t in res["timestamp"]])
     df = pd.DataFrame({k: q[k] for k in COLS}, index=idx)
     df["adjclose"] = res["indicators"]["adjclose"][0]["adjclose"]
+    df = fill_settled_close(df, res["meta"])
     return _adjust(df.dropna(subset=["close"]))
 
 
@@ -191,9 +225,17 @@ def validate(df: pd.DataFrame, symbol: str, max_jump: float = 0.40) -> list[str]
 
 
 def fetch(symbol: str, period: str = "2y", csv: str | None = None) -> tuple[pd.DataFrame, str, list[str]]:
-    """Return (validated dataframe, source name, warnings)."""
+    """Return (validated dataframe, source name, warnings).
+
+    Sources are tried in order, but a source that validates is only accepted
+    immediately when it reaches the most recent close. Otherwise the remaining
+    sources are tried and the freshest result wins — one source lagging a
+    session should not decide what gets published.
+    """
     errors = []
     candidates = [("csv", lambda s, p: from_csv(csv))] if csv else SOURCES
+    expected = expected_last_session()
+    best: tuple[pd.DataFrame, str, list[str]] | None = None
     for name, fn in candidates:
         try:
             df = fn(symbol, period).astype(float).sort_index()
@@ -201,9 +243,17 @@ def fetch(symbol: str, period: str = "2y", csv: str | None = None) -> tuple[pd.D
             df = drop_placeholder_rows(df)
             df = drop_incomplete_session(df)
             warnings = validate(df, symbol)
-            log.info("%s: %d rows from %s", symbol, len(df), name)
-            return df, name, warnings
+            log.info("%s: %d rows from %s, through %s", symbol, len(df), name, df.index[-1].date())
+            if best is None or df.index[-1] > best[0].index[-1]:
+                best = (df, name, warnings)
+            if best[0].index[-1].date() >= expected:
+                break  # current: no reason to call anything else
         except Exception as e:  # try the next source
             log.warning("%s via %s failed: %s", symbol, name, e)
             errors.append(f"{name}: {e}")
-    raise DataError(f"All sources failed for {symbol}: " + " | ".join(errors))
+    if best is None:
+        raise DataError(f"All sources failed for {symbol}: " + " | ".join(errors))
+    if best[0].index[-1].date() < expected:
+        log.warning("%s: freshest source (%s) ends %s, expected %s",
+                    symbol, best[1], best[0].index[-1].date(), expected)
+    return best
