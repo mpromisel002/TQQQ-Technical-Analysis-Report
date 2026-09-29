@@ -225,7 +225,23 @@ test("bottomLine leads with a headline and stays short", () => {
     assert.ok(bl.rows.every((r) => r.label && r.html));
     const all = [bl.headline, ...bl.rows.map((r) => r.html)].join(" ");
     assert.ok(!/undefined|NaN/.test(all));
-    assert.deepEqual(bl.rows.map((r) => r.label).slice(-3), ["Trend", "Momentum", "Risk"]);
+    assert.deepEqual(bl.rows.map((r) => r.label).slice(-3), ["Trend", "Buyers vs sellers", "Risk"]);
+  }
+});
+
+test("bottomLine names no indicator a layman would have to look up", () => {
+  const file = path.join(__dirname, "..", "docs", "data", "tqqq.json");
+  if (!fs.existsSync(file)) return;
+  const d = SR.fromPayload(JSON.parse(fs.readFileSync(file, "utf8")));
+  // terms that need a definition before they mean anything. They are fine further
+  // down the page, where there is room to explain them; the summary must not need one.
+  const jargon = /\b(RSI|MACD|Bollinger|ATR|swing low|moving average|\d+-day (average|range)|overbought|oversold|momentum|beta|drawdown|volatility)\b/i;
+  for (const w of Object.values(SR.WINDOW_PRESETS)) {
+    const res = SR.analyze(d, { window: w });
+    const bl = SR.bottomLine(d, res, SR.labels(d, res));
+    const text = [bl.headline, ...bl.rows.map((r) => r.html), ...bl.rows.map((r) => r.label)].join(" ");
+    const hit = text.match(jargon);
+    assert.equal(hit, null, `bottom line uses "${hit && hit[0]}" for window ${w}`);
   }
 });
 
