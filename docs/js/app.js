@@ -15,7 +15,8 @@
   const PANE_DEFAULTS = { vol: true, rsi: true, macd: false, dd: false, rolling: true, profile: false };
   const OVERLAYS = new Set(["rolling", "profile"]); // drawn inside the price pane, no rebuild needed
 
-  const state = { data: null, opts: SR.normalize({}), res: null, lab: null, charts: {}, windowKey: "12m", panes: { ...PANE_DEFAULTS } };
+  const state = { data: null, opts: SR.normalize({}), res: null, lab: null, charts: {}, windowKey: "12m",
+    panes: { ...PANE_DEFAULTS }, cadence: "daily", view: null };
 
   /* ------------------------------------------------------------ URL <-> settings */
   function readUrl() {
@@ -38,6 +39,7 @@
     try {
       const saved = JSON.parse(localStorage.getItem("panes") || "null");
       if (saved) state.panes = { ...PANE_DEFAULTS, ...saved };
+      if (localStorage.getItem("cadence") === "weekly") state.cadence = "weekly";
     } catch (e) { /* storage unavailable */ }
   }
 
@@ -63,6 +65,7 @@
     $("#touches").value = o.minTouches; $("#touchesOut").textContent = o.minTouches;
     $("#periodText").textContent = o.period;
     $$(".pv, .pv-label").forEach((el) => (el.textContent = o.period));
+    $$("#cadenceSeg button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.cadence === state.cadence)));
   }
 
   function bindControls() {
@@ -129,11 +132,13 @@
       renderCharts({ keepView: true });
     });
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderCharts({ keepView: true }));
-    $$("[data-zoom]").forEach((b) => b.addEventListener("click", () => {
-      const c = state.charts.main;
-      if (b.dataset.zoom === "in") c.zoom(1 / 1.3);
-      else if (b.dataset.zoom === "out") c.zoom(1.3);
-      else c.resetView();
+    $("#resetZoom").addEventListener("click", () => state.charts.main.resetView());
+    $$("#cadenceSeg button").forEach((b) => b.addEventListener("click", () => {
+      if (state.cadence === b.dataset.cadence) return;
+      state.cadence = b.dataset.cadence;
+      try { localStorage.setItem("cadence", state.cadence); } catch (e) { /* storage unavailable */ }
+      syncControls();
+      rebuildMainChart({ resetView: true }); // bar count changes, so the old view no longer maps
     }));
     $("#dlCsv").addEventListener("click", downloadCsv);
     $("#dlPng").addEventListener("click", () => {
@@ -287,23 +292,22 @@
   }
 
   function mainTooltip(i) {
-    const d = state.data;
+    const v = state.view, d = v.data;
     const chg = i > 0 ? (d.close[i] / d.close[i - 1] - 1) * 100 : 0;
-    const sw = (v) => `<span class="sw" style="background:${css(v)}"></span>`;
-    const pivots = state.res.pivots;
+    const sw = (x) => `<span class="sw" style="background:${css(x)}"></span>`;
     const tags = [];
-    if (pivots.lows.includes(i)) tags.push("Swing low");
-    if (pivots.pendingLows.includes(i)) tags.push("Pending swing low");
+    if (v.lows.includes(i)) tags.push(v.weekly ? "Swing low this week" : "Swing low");
+    if (v.pendingLows.includes(i)) tags.push("Pending swing low");
     const zone = state.res.supports.find((z) => d.low[i] <= z.high + state.res.tol / 2 && d.high[i] >= z.low - state.res.tol / 2);
     const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
-    return `<div class="d">${fmtDate(d.dates[i])}${tags.length ? ` · ${tags.join(", ")}` : ""}</div><table>
+    return `<div class="d">${v.weekly ? "Week of " : ""}${fmtDate(d.dates[i])}${tags.length ? ` · ${tags.join(", ")}` : ""}</div><table>
       ${row("Open / Close", `${money(d.open[i])} / ${money(d.close[i])}`)}
-      ${row("High / Low", `${money(d.high[i])} / ${money(d.low[i])}`)}
+      ${row(v.weekly ? "High / Low (week)" : "High / Low", `${money(d.high[i])} / ${money(d.low[i])}`)}
       ${row("Change", `<span class="${chg >= 0 ? "up" : "down"}">${pct(chg, 2)}</span>`)}
       ${zone ? row(`${sw("--support")}In support zone`, `${zone.id} ${money(zone.price)}`) : ""}
-      ${row(`${sw("--rolling")}${state.opts.period}-day low`, money(state.res.rollingLow[i]))}
+      ${row(`${sw("--rolling")}${state.opts.period}-day low`, money(v.rollingLow[i]))}
       ${row(`${sw("--sma20")}20 / ${sw("--sma50")}50 / ${sw("--sma200")}200-day`, `${money(d.sma20[i])} / ${money(d.sma50[i])} / ${money(d.sma200[i])}`)}
-      ${row("Volume", `${compact(d.volume[i])} (${(d.volume[i] / d.vol_avg20[i]).toFixed(1)}× avg)`)}
+      ${row(v.weekly ? "Volume (week)" : "Volume", `${compact(d.volume[i])} (${(d.volume[i] / d.vol_avg20[i]).toFixed(1)}× avg)`)}
       ${row("RSI", d.rsi14[i]?.toFixed(1) ?? "–")}
       ${row("MACD / signal", d.macd[i] != null ? `${d.macd[i].toFixed(2)} / ${d.macd_signal[i].toFixed(2)}` : "–")}
       ${row("Below 12-month high", pct(d.drawdown[i], 1))}
@@ -311,7 +315,7 @@
   }
 
   function buildMainChart() {
-    const d = state.data;
+    const v = state.view, d = v.data;
     const extent = (keys) => (a, b) => {
       let mn = Infinity, mx = -Infinity;
       for (const k of keys) for (let i = a; i <= b; i++) { const v = d[k][i]; if (v != null) { if (v < mn) mn = v; if (v > mx) mx = v; } }
@@ -323,7 +327,7 @@
         format: compact, ticks: (lo, hi) => [hi * 0.5],
         range: (a, b) => [0, extent(["volume"])(a, b)[1] * 1.05],
         draw: (ctx, S) => {
-          const lows = new Set(state.res.pivots.lows);
+          const lows = new Set(state.view.lows);
           draw.bars(ctx, S, d.volume, (i) => (lows.has(i) ? css("--support") : css("--vol")));
           draw.line(ctx, S, d.vol_avg20, css("--sma20"), 1.5);
         },
@@ -367,30 +371,32 @@
     ];
     panes[panes.length - 1].gap = 0;
     const c = new StackChart($("#mainChart"), {
-      panes, dates: d.dates, tooltip: mainTooltip, rightPad: 4,
-      dimBefore: () => state.res.start,
+      panes, dates: v.dates, tooltip: mainTooltip, rightPad: 4,
+      wheelZoom: true,                       // plain scroll zooms while the pointer is over it
+      dimBefore: () => state.view.start,
     });
-    c.canvas.setAttribute("aria-label", "Candlestick chart of TQQQ with shaded support zones and optional volume, RSI, MACD and drawdown panels. The levels table below lists the same zones.");
+    c.canvas.setAttribute("aria-label", `${v.weekly ? "Weekly" : "Daily"} candlestick chart of TQQQ with shaded support zones and optional volume, RSI, MACD and drawdown panels. The levels table below lists the same zones.`);
     return c;
   }
 
-  function rebuildMainChart() {
+  function rebuildMainChart({ resetView = false } = {}) {
     const old = state.charts.main;
-    const view = old && old.view;
+    const view = !resetView && old && old.view;
     old && old.destroy();
+    state.view = SR.chartModel(state.data, state.res, state.cadence);
     state.charts.main = buildMainChart();
-    const end = state.data.dates.length - 1;
-    if (view) state.charts.main.setView(view.from, view.to, [0, end]);
+    renderLegends();
+    if (view) state.charts.main.setView(view.from, view.to, [0, state.view.dates.length - 1]);
     else renderCharts();
   }
 
   function drawPricePane(ctx, S) {
-    const d = state.data, r = state.res;
+    const v = state.view, d = v.data, r = state.res;
     const sup = css("--support");
     const half = r.tol / 2;
     // 1. optional volume-by-price profile, drawn behind everything on the right
     if (state.panes.profile) {
-      const prof = SR.volumeProfile(d, r, 32);
+      const prof = SR.volumeProfile(state.data, r, 32); // a price histogram: always from daily bars
       const maxV = Math.max(...prof.map((p) => p.volume));
       const profW = (S.right - S.left) * (S.mobile ? 0.16 : 0.12);
       ctx.fillStyle = withAlpha(css("--text-muted"), 0.18);
@@ -426,20 +432,20 @@
     draw.line(ctx, S, d.sma50, css("--sma50"), 2);
     draw.line(ctx, S, d.sma20, css("--sma20"), 1.25);
     if (state.panes.rolling) {
-      draw.step(ctx, S, r.rollingLow.map((v, i) => (i >= r.start ? v : null)), withAlpha(css("--rolling"), 0.75), 1.25);
+      draw.step(ctx, S, v.rollingLow.map((x, i) => (i >= v.start ? x : null)), withAlpha(css("--rolling"), 0.75), 1.25);
     }
     // 4. candles
     draw.candles(ctx, S, d, css("--candle"), css("--candle"));
     // 5. swing-low markers
     const off = Math.max(8, S.barW * 0.3 + 6);
     const size = S.mobile ? 4 : 4.5;
-    const used = new Set(r.supports.flatMap((z) => z.pivots)); // lows that built one of S1…S5
-    r.pivots.lows.forEach((i) => draw.triangle(ctx, S.x(i), S.y(d.low[i]) + off, "up",
+    const used = new Set(v.used); // bars carrying a low that built one of S1…S5
+    v.lows.forEach((i) => draw.triangle(ctx, S.x(i), S.y(d.low[i]) + off, "up",
       used.has(i) ? sup : withAlpha(sup, 0.34), false, used.has(i) ? size : size - 1));
-    r.pivots.pendingLows.forEach((i) => draw.triangle(ctx, S.x(i), S.y(d.low[i]) + off, "up", sup, true, size));
+    v.pendingLows.forEach((i) => draw.triangle(ctx, S.x(i), S.y(d.low[i]) + off, "up", sup, true, size));
     // 6. window start marker
-    if (r.start > S.i0) {
-      const x = Math.round(S.x(r.start) - S.barW / 2) + 0.5;
+    if (v.start > S.i0) {
+      const x = Math.round(S.x(v.start) - S.barW / 2) + 0.5;
       ctx.strokeStyle = css("--axis"); ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
       ctx.beginPath(); ctx.moveTo(x, S.top); ctx.lineTo(x, S.bottom); ctx.stroke(); ctx.setLineDash([]);
       ctx.fillStyle = css("--text-muted"); ctx.textAlign = "left"; ctx.textBaseline = "top";
@@ -525,16 +531,16 @@
   }
 
   function renderCharts({ keepView } = {}) {
-    const r = state.res, d = state.data;
+    const r = state.res, v = state.view;
     const main = state.charts.main;
-    const end = d.dates.length - 1;
+    const end = v.dates.length - 1;
     // the chart shows the window (plus a little context); users can pan back to the full 2 years
-    const lead = Math.round(r.opts.window * 0.06);
-    const from = Math.max(0, r.start - lead);
+    const lead = Math.round((end - v.start) * 0.06);
+    const from = Math.max(0, v.start - lead);
     if (keepView && main.view) main.render(); else main.setView(from, end, [0, end]);
     const b = state.charts.bench;
     b.recompute();
-    b.setView(r.start, end, [r.start, end]);
+    b.setView(r.start, state.data.dates.length - 1, [r.start, state.data.dates.length - 1]);
     state.charts.cmp && state.charts.cmp.render();
   }
 
@@ -589,6 +595,7 @@
     state.res = SR.analyze(state.data, state.opts);
     state.lab = SR.labels(state.data, state.res);
     state.runs = SR.compareWindows(state.data, state.opts); // shared by the findings and the window chart
+    state.view = SR.chartModel(state.data, state.res, state.cadence);
     syncControls();
     writeUrl();
     renderBottomLine();
@@ -615,6 +622,8 @@
       state.data = SR.fromPayload(payload);
       renderHeader();
       renderChanges(changes);
+      state.res = SR.analyze(state.data, state.opts);
+      state.view = SR.chartModel(state.data, state.res, state.cadence);
       state.charts.main = buildMainChart();
       state.charts.bench = buildBenchChart();
       update();

@@ -312,10 +312,15 @@
       c.addEventListener("pointercancel", end);
       c.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") { this.setHover(null, null); } });
       c.addEventListener("wheel", (e) => {
-        if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return; // plain wheel scrolls the page
+        // wheelZoom charts zoom on a plain scroll while the pointer is over them;
+        // the rest keep the modifier so the page still scrolls past them.
+        if (!this.o.wheelZoom && !(e.ctrlKey || e.metaKey || e.shiftKey)) return;
         e.preventDefault();
-        const i = this.indexAt(pos(e).x);
-        this.zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15, i);
+        // normalise across mice (deltaMode 0, ~100 a notch) and trackpads (small deltas),
+        // then scale continuously so a trackpad glides instead of jumping a step per event
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+        const dy = clamp(e.deltaY * unit, -600, 600);
+        this.zoom(Math.pow(1.0015, dy), this.indexAt(pos(e).x));
       }, { passive: false });
       c.addEventListener("dblclick", () => this.resetView());
       c.tabIndex = 0;

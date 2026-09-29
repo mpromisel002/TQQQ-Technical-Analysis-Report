@@ -82,9 +82,11 @@
     <div class="card-head">
       <h2 id="h-chart">Price &amp; support zones</h2>
       <div class="zoom">
-        <button type="button" class="icon-btn" data-zoom="in" aria-label="Zoom in">+</button>
-        <button type="button" class="icon-btn" data-zoom="out" aria-label="Zoom out">−</button>
-        <button type="button" class="btn small" data-zoom="reset">Reset</button>
+        <div class="seg small" role="radiogroup" aria-label="Chart detail" id="cadenceSeg">
+          <button type="button" role="radio" data-cadence="daily" aria-checked="true">Daily</button>
+          <button type="button" role="radio" data-cadence="weekly" aria-checked="false">Weekly</button>
+        </div>
+        <button type="button" class="btn small" id="resetZoom">Reset view</button>
       </div>
     </div>
     <p class="help lede">Each green band is a price area where TQQQ has stopped falling and turned back up. The darker the band, the more reliable the level has been. <b>S1</b> is the closest support below today's price, <b>S2</b> the next one down, and so on.</p>
@@ -99,7 +101,7 @@
       <label class="chip"><input type="checkbox" data-pane="profile"> Volume by price</label>
     </div>
     <div id="mainChart" class="main-chart" aria-describedby="chartHelp"></div>
-    <p id="chartHelp" class="help">Hover or tap for the numbers behind any day. Drag sideways to pan; Ctrl/⌘ + scroll or pinch to zoom; double-click to reset. The greyed-out area on the left is history <em>outside</em> the window you picked — it is shown for context but is not used to find levels.</p>
+    <p id="chartHelp" class="help"><b>Scroll over the chart to zoom</b>; drag sideways to pan; pinch to zoom on a touchscreen; double-click or <b>Reset view</b> to go back. Hover or tap a bar for its numbers. <b>Weekly</b> draws one bar per week — each one spans that week's full high and low, so nothing is hidden — which is easier to read across a long stretch. The greyed-out area on the left is history <em>outside</em> the window you picked; it is shown for context but is not used to find levels.</p>
   </section>
 
   <section class="card" aria-labelledby="h-table">

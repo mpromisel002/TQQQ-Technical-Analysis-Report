@@ -164,6 +164,78 @@ test("window limits which pivots are used", () => {
   assert.ok(short.pivots.lows.every((i) => i >= 300 - 21));
 });
 
+// The weekly view is display only — levels stay on daily data — but it must never
+// hide a session, because the whole chart is about where price met support.
+test("weekly bars carry the week's true high and low", () => {
+  const file = path.join(__dirname, "..", "docs", "data", "tqqq.json");
+  if (!fs.existsSync(file)) return;
+  const d = SR.fromPayload(JSON.parse(fs.readFileSync(file, "utf8")));
+  const res = SR.analyze(d, {});
+  const wk = SR.chartModel(d, res, "weekly");
+
+  assert.ok(wk.weekly && wk.dates.length > 0);
+  assert.ok(wk.dates.length < d.dates.length / 4, "weeks should be far fewer than days");
+  // every bar is labelled by a Monday
+  for (const iso of wk.dates) assert.equal(SR.weekStart(iso), iso);
+
+  // group the daily rows the same way and check each aggregate
+  const byWeek = new Map();
+  d.dates.forEach((iso, i) => {
+    const k = SR.weekStart(iso);
+    if (!byWeek.has(k)) byWeek.set(k, []);
+    byWeek.get(k).push(i);
+  });
+  wk.dates.forEach((k, w) => {
+    const idx = byWeek.get(k);
+    assert.ok(idx && idx.length, `week ${k} has member days`);
+    assert.equal(wk.data.high[w], Math.max(...idx.map((i) => d.high[i])), `high for ${k}`);
+    assert.equal(wk.data.low[w], Math.min(...idx.map((i) => d.low[i])), `low for ${k}`);
+    assert.equal(wk.data.open[w], d.open[idx[0]], `open for ${k}`);
+    assert.equal(wk.data.close[w], d.close[idx[idx.length - 1]], `close for ${k}`);
+    assert.equal(wk.data.volume[w], idx.reduce((a, i) => a + d.volume[i], 0), `volume for ${k}`);
+    // indicators are daily series, read at the week's final session
+    assert.equal(wk.data.sma50[w], d.sma50[idx[idx.length - 1]], `sma50 for ${k}`);
+    // the average line has to be comparable with a summed bar
+    const avg = d.vol_avg20[idx[idx.length - 1]];
+    if (avg != null) assert.ok(Math.abs(wk.data.vol_avg20[w] - avg * idx.length) < 1e-6);
+  });
+
+  // the invariant that justifies aggregating rather than sampling Mondays
+  d.dates.forEach((iso, i) => {
+    const w = wk.dates.indexOf(SR.weekStart(iso));
+    assert.ok(d.low[i] >= wk.data.low[w] - 1e-9, `daily low on ${iso} is not hidden`);
+    assert.ok(d.high[i] <= wk.data.high[w] + 1e-9, `daily high on ${iso} is not hidden`);
+  });
+});
+
+test("weekly view maps swing lows onto the week that contained them", () => {
+  const file = path.join(__dirname, "..", "docs", "data", "tqqq.json");
+  if (!fs.existsSync(file)) return;
+  const d = SR.fromPayload(JSON.parse(fs.readFileSync(file, "utf8")));
+  const res = SR.analyze(d, {});
+  const wk = SR.chartModel(d, res, "weekly");
+  for (const i of res.pivots.lows) {
+    assert.ok(wk.lows.includes(wk.dates.indexOf(SR.weekStart(d.dates[i]))), "each swing low has a week");
+  }
+  assert.ok(wk.lows.length <= res.pivots.lows.length, "weeks collapse, never multiply");
+  assert.ok(wk.lows.every((i) => i >= 0 && i < wk.dates.length));
+  assert.ok(wk.used.every((i) => wk.lows.includes(i)), "highlighted bars are a subset of swing-low bars");
+  assert.ok(wk.start >= 0 && wk.start < wk.dates.length);
+  assert.equal(wk.rollingLow.length, wk.dates.length);
+});
+
+test("chartModel leaves the daily view untouched", () => {
+  const file = path.join(__dirname, "..", "docs", "data", "tqqq.json");
+  if (!fs.existsSync(file)) return;
+  const d = SR.fromPayload(JSON.parse(fs.readFileSync(file, "utf8")));
+  const res = SR.analyze(d, {});
+  const dy = SR.chartModel(d, res, "daily");
+  assert.equal(dy.weekly, false);
+  assert.equal(dy.data, d);
+  assert.equal(dy.start, res.start);
+  assert.deepEqual(dy.lows, res.pivots.lows);
+});
+
 // freshness drives what the page says about its own data. `nowNY` carries New York
 // wall-clock time in its local fields, which is how app.js builds it.
 const ny = (s) => new Date(s);

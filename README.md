@@ -124,8 +124,11 @@ Two design choices worth naming. Findings are **grouped rather than ranked**, be
 | <img src="assets/readme/moving-averages.svg" alt="" width="52"> | **Blue / orange / purple lines** | The 20-, 50- and 200-day moving averages. |
 | <img src="assets/readme/out-of-window.svg" alt="" width="52"> | **Greyed-out area on the left** | History *outside* the window you chose. Shown for context; not used to find levels. |
 | <img src="assets/readme/panels.svg" alt="" width="52"> | **Panels below the price** | Volume, RSI, MACD and drawdown, all sharing the same date axis. |
+| <img src="assets/readme/candles.svg" alt="" width="34"> | **One bar = one day or one week** | The Daily / Weekly toggle in the chart header. Weekly bars span the whole week's high and low. |
 
-**Interaction:** hover or tap for the numbers behind any day, drag sideways to pan, Ctrl/⌘ + scroll or pinch to zoom, double-click to reset. The **Show:** chips under the legend turn the optional panels and overlays on and off; your choices are remembered in your browser.
+**Interaction:** **scroll over the chart to zoom** — no modifier key, the wheel is captured only while the pointer is over the plot. Drag sideways to pan, pinch to zoom on a touchscreen, double-click or **Reset view** to go back. Hover or tap a bar for its numbers.
+
+**Daily / Weekly.** The toggle in the chart header switches between one bar per session and one per week. Weekly is far easier to read across a long stretch — about 105 bars instead of 500 over two years. Each weekly bar carries **the week's true high and low**, not a single day's: this chart exists to show where price met support, so a level tested hard on a Wednesday must not disappear because the bar was taken from a Monday. Open is the week's first session, close its last, volume the sum; every other series is a daily indicator read at the week's final session. It is a display choice only — levels, scores and statuses are always computed on daily data. Your choice is remembered in your browser.
 
 Only Volume and RSI are on by default — the chart is deliberately quiet until you ask for more.
 
