@@ -579,17 +579,17 @@
   }
 
   /**
-   * One bar per calendar week, for a readable zoomed-out chart.
+   * One bar per calendar week: each Monday's session.
    *
-   * The week's true high and low are carried through rather than any single
-   * session's, because this chart exists to show where price met support: a
-   * level tested hard on a Wednesday must not vanish because the bar was taken
-   * from a Monday. Open is the week's first session, close its last, volume the
-   * sum. Every other series is an indicator computed on daily data, so it is
-   * read at the week's final session — "the 50-day average as of Friday".
+   * This samples rather than aggregates — the bar is that single Monday, not a
+   * summary of the week. Where Monday was a market holiday the week's first
+   * trading day stands in, so every week still gets exactly one bar and the
+   * date axis stays truthful about which session is drawn.
    *
-   * This is display only. Levels, scores and statuses stay on daily data; the
-   * returned pivot indices are the weeks that contained a swing low.
+   * Being a sample, it does not show what happened on the other four days: a
+   * support level tested on a Wednesday will not appear on the chart, though it
+   * still counts in the levels table, which is always computed on daily data.
+   * The chart caption says so.
    */
   function resampleWeekly(data, res) {
     const n = data.dates.length;
@@ -600,30 +600,18 @@
       if (!cur || cur.week !== wk) groups.push((cur = { week: wk, idx: [] }));
       cur.idx.push(i);
     }
-    const keys = Object.keys(data).filter((k) => Array.isArray(data[k]) && k !== "dates");
-    const SPECIAL = new Set(["open", "high", "low", "close", "volume", "vol_avg20"]);
-    const out = { dates: groups.map((g) => g.week) };
-    for (const k of keys) out[k] = [];
-    const lastIdx = [];
+    // the Monday itself, or the week's first session when Monday was a holiday
+    const srcIdx = groups.map((g) => {
+      const monday = g.idx.find((i) => data.dates[i] === g.week);
+      return monday == null ? g.idx[0] : monday;
+    });
 
-    for (const g of groups) {
-      const first = g.idx[0], last = g.idx[g.idx.length - 1];
-      lastIdx.push(last);
-      const pick = (k, fn) => {
-        const vals = g.idx.map((i) => data[k][i]).filter((v) => v != null);
-        return vals.length ? fn(vals) : null;
-      };
-      out.open.push(data.open[first]);
-      out.close.push(data.close[last]);
-      out.high.push(pick("high", (v) => Math.max(...v)));
-      out.low.push(pick("low", (v) => Math.min(...v)));
-      out.volume.push(pick("volume", (v) => v.reduce((a, b) => a + b, 0)));
-      // the average line has to be comparable with a summed weekly bar
-      out.vol_avg20.push(data.vol_avg20[last] == null ? null : data.vol_avg20[last] * g.idx.length);
-      for (const k of keys) if (!SPECIAL.has(k)) out[k].push(data[k][last]);
+    const out = { dates: srcIdx.map((i) => data.dates[i]) };
+    for (const k of Object.keys(data)) {
+      if (Array.isArray(data[k]) && k !== "dates") out[k] = srcIdx.map((i) => data[k][i]);
     }
 
-    // map daily positions into week positions
+    // map daily positions onto the week that contains them
     const weekOf = new Array(n);
     groups.forEach((g, w) => g.idx.forEach((i) => (weekOf[i] = w)));
     const uniq = (a) => [...new Set(a)].sort((x, y) => x - y);
@@ -636,8 +624,8 @@
       lows: uniq(res.pivots.lows.map((i) => weekOf[i])),
       pendingLows: uniq(res.pivots.pendingLows.map((i) => weekOf[i])),
       used: uniq(res.supports.flatMap((z) => z.pivots).map((i) => weekOf[i])),
-      rollingLow: lastIdx.map((i) => res.rollingLow[i]),
-      lastIdx,
+      rollingLow: srcIdx.map((i) => res.rollingLow[i]),
+      srcIdx,
       weekly: true,
     };
   }
@@ -649,7 +637,7 @@
         data, dates: data.dates, start: res.start, end: res.end,
         lows: res.pivots.lows, pendingLows: res.pivots.pendingLows,
         used: res.supports.flatMap((z) => z.pivots),
-        rollingLow: res.rollingLow, lastIdx: data.dates.map((_, i) => i), weekly: false,
+        rollingLow: res.rollingLow, srcIdx: data.dates.map((_, i) => i), weekly: false,
       };
     }
     return resampleWeekly(data, res);

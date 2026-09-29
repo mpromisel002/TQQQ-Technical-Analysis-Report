@@ -300,14 +300,14 @@
     if (v.pendingLows.includes(i)) tags.push("Pending swing low");
     const zone = state.res.supports.find((z) => d.low[i] <= z.high + state.res.tol / 2 && d.high[i] >= z.low - state.res.tol / 2);
     const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
-    return `<div class="d">${v.weekly ? "Week of " : ""}${fmtDate(d.dates[i])}${tags.length ? ` · ${tags.join(", ")}` : ""}</div><table>
+    return `<div class="d">${fmtDate(d.dates[i])}${tags.length ? ` · ${tags.join(", ")}` : ""}</div><table>
       ${row("Open / Close", `${money(d.open[i])} / ${money(d.close[i])}`)}
-      ${row(v.weekly ? "High / Low (week)" : "High / Low", `${money(d.high[i])} / ${money(d.low[i])}`)}
+      ${row("High / Low", `${money(d.high[i])} / ${money(d.low[i])}`)}
       ${row("Change", `<span class="${chg >= 0 ? "up" : "down"}">${pct(chg, 2)}</span>`)}
       ${zone ? row(`${sw("--support")}In support zone`, `${zone.id} ${money(zone.price)}`) : ""}
       ${row(`${sw("--rolling")}${state.opts.period}-day low`, money(v.rollingLow[i]))}
       ${row(`${sw("--sma20")}20 / ${sw("--sma50")}50 / ${sw("--sma200")}200-day`, `${money(d.sma20[i])} / ${money(d.sma50[i])} / ${money(d.sma200[i])}`)}
-      ${row(v.weekly ? "Volume (week)" : "Volume", `${compact(d.volume[i])} (${(d.volume[i] / d.vol_avg20[i]).toFixed(1)}× avg)`)}
+      ${row("Volume", `${compact(d.volume[i])} (${(d.volume[i] / d.vol_avg20[i]).toFixed(1)}× avg)`)}
       ${row("RSI", d.rsi14[i]?.toFixed(1) ?? "–")}
       ${row("MACD / signal", d.macd[i] != null ? `${d.macd[i].toFixed(2)} / ${d.macd_signal[i].toFixed(2)}` : "–")}
       ${row("Below 12-month high", pct(d.drawdown[i], 1))}
@@ -375,7 +375,7 @@
       wheelZoom: true,                       // plain scroll zooms while the pointer is over it
       dimBefore: () => state.view.start,
     });
-    c.canvas.setAttribute("aria-label", `${v.weekly ? "Weekly" : "Daily"} candlestick chart of TQQQ with shaded support zones and optional volume, RSI, MACD and drawdown panels. The levels table below lists the same zones.`);
+    c.canvas.setAttribute("aria-label", `Candlestick chart of TQQQ, ${v.weekly ? "one bar per Monday" : "one bar per trading day"}, with shaded support zones and optional volume, RSI, MACD and drawdown panels. The levels table below lists the same zones.`);
     return c;
   }
 

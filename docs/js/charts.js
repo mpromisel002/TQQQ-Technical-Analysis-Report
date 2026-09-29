@@ -128,6 +128,33 @@
       ctx.fillRect(0, 0, L.w, L.height);
       ctx.font = FONT;
 
+      // x axis: month ticks. Positions are worked out first and the vertical rules
+      // drawn before any data, or a rule would slice through the bar it labels —
+      // very visible in the Mondays view, where bars are wide.
+      const dates = this.o.dates;
+      const span = i1 - i0;
+      const monthStep = span > 400 ? 3 : span > 200 ? 2 : 1;
+      const xTicks = [];
+      let lastX = -1e9;
+      for (let i = Math.max(i0, 1); i <= i1; i++) {
+        const m = +dates[i].slice(5, 7), pm = +dates[i - 1].slice(5, 7);
+        let label = null;
+        if (span <= 45) {
+          if (i % Math.ceil(span / 6) === 0) label = dates[i].slice(5);
+        } else if (m !== pm && (m - 1) % monthStep === 0) {
+          label = m === 1 ? dates[i].slice(0, 4) : new Date(dates[i] + "T12:00:00Z").toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+        }
+        if (!label) continue;
+        const x = xScale(i);
+        if (x - lastX < 44) continue;
+        lastX = x;
+        xTicks.push({ x, label });
+      }
+      ctx.strokeStyle = ink.grid; ctx.lineWidth = 1;
+      for (const t of xTicks) {
+        for (const p of L.panes) { ctx.beginPath(); ctx.moveTo(Math.round(t.x) + 0.5, p.y); ctx.lineTo(Math.round(t.x) + 0.5, p.y + p.h); ctx.stroke(); }
+      }
+
       for (const p of L.panes) {
         const [mn, mx] = p.range(i0, i1);
         const padY = (mx - mn) * (p.padY ?? 0.06) || 1;
@@ -172,28 +199,9 @@
         ctx.beginPath(); ctx.moveTo(L.left, p.y + p.h + 0.5); ctx.lineTo(L.right, p.y + p.h + 0.5); ctx.stroke();
       }
 
-      // x axis: month ticks
+      // x axis labels, over the rules already drawn under the data
       ctx.fillStyle = ink.muted; ctx.textAlign = "center"; ctx.textBaseline = "top";
-      const dates = this.o.dates;
-      const span = i1 - i0;
-      const monthStep = span > 400 ? 3 : span > 200 ? 2 : 1;
-      let lastX = -1e9;
-      for (let i = Math.max(i0, 1); i <= i1; i++) {
-        const m = +dates[i].slice(5, 7), pm = +dates[i - 1].slice(5, 7);
-        let label = null;
-        if (span <= 45) {
-          if (i % Math.ceil(span / 6) === 0) label = dates[i].slice(5);
-        } else if (m !== pm && (m - 1) % monthStep === 0) {
-          label = m === 1 ? dates[i].slice(0, 4) : new Date(dates[i] + "T12:00:00Z").toLocaleString("en-US", { month: "short", timeZone: "UTC" });
-        }
-        if (!label) continue;
-        const x = xScale(i);
-        if (x - lastX < 44) continue;
-        lastX = x;
-        ctx.fillText(label, x, L.xAxisY + 5);
-        ctx.strokeStyle = ink.grid;
-        for (const p of L.panes) { ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, p.y); ctx.lineTo(Math.round(x) + 0.5, p.y + p.h); ctx.stroke(); }
-      }
+      for (const t of xTicks) ctx.fillText(t.label, t.x, L.xAxisY + 5);
 
       this.drawHover();
     }
