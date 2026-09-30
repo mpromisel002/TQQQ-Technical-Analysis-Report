@@ -1,5 +1,14 @@
 {
- "as_of": "2026-09-29",
- "previous": "2026-09-28",
- "items": []
+ "as_of": "2026-09-30",
+ "previous": "2026-09-29",
+ "items": [
+  {
+   "type": "new",
+   "text": "Support at $49.85 (2 touches) moved into the top 5."
+  },
+  {
+   "type": "dropped",
+   "text": "Support at $57.48 dropped out of the top list."
+  }
+ ]
 }
