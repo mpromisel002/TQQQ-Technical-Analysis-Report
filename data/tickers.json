@@ -1,0 +1,9 @@
+{
+  "default": "TQQQ",
+  "proxy": "",
+  "tickers": [
+    { "symbol": "TQQQ", "name": "ProShares UltraPro QQQ", "index": "Nasdaq-100", "leverage": 3, "benchmark": "QQQ", "dir": "data" },
+    { "symbol": "QQQ", "name": "Invesco QQQ Trust", "index": "Nasdaq-100", "leverage": 1, "benchmark": "SPY", "dir": "data/qqq" },
+    { "symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "index": "S&P 500", "leverage": 1, "benchmark": "QQQ", "dir": "data/spy" }
+  ]
+}
