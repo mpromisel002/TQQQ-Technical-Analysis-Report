@@ -1,10 +1,10 @@
 {
- "as_of": "2026-10-27",
- "previous": "2026-10-26",
+ "as_of": "2026-10-28",
+ "previous": "2026-10-27",
  "items": [
   {
    "type": "trend",
-   "text": "Trend changed from Mixed to Uptrend."
+   "text": "Trend changed from Uptrend to Mixed."
   }
  ]
 }
