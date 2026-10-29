@@ -1,10 +1,10 @@
 {
- "as_of": "2026-10-28",
- "previous": "2026-10-27",
+ "as_of": "2026-10-29",
+ "previous": "2026-10-28",
  "items": [
   {
-   "type": "new",
-   "text": "Support at $68.85 (2 touches) is now on the list of levels."
+   "type": "broken",
+   "text": "Support at $70.63 broke — price closed below the zone."
   }
  ]
 }
