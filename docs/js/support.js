@@ -735,25 +735,62 @@
 
   /* ------------------------------------------------------------------ freshness */
 
+  // one-off closures the rules below cannot know (2025-01-09: day of mourning for President Carter)
+  const EXTRA_CLOSURES = new Set(["2025-01-09"]);
+
   /**
-   * The most recent weekday whose US close has passed, as a local-midnight Date.
+   * Whether the US stock market is closed for a holiday on this weekday (NYSE rules).
+   * Checked against two years of recorded prices: every weekday missing from them is a
+   * holiday here, and no holiday here has prices.
+   */
+  function isMarketHoliday(date) {
+    const y = date.getFullYear(), m = date.getMonth(), day = date.getDate(), wd = date.getDay();
+    const pad = (n) => String(n).padStart(2, "0");
+    if (EXTRA_CLOSURES.has(`${y}-${pad(m + 1)}-${pad(day)}`)) return true;
+    const nth = (n) => Math.floor((day - 1) / 7) + 1 === n; // the nth such weekday of the month
+    const last = day + 7 > new Date(y, m + 1, 0).getDate(); // the last such weekday of the month
+    // fixed dates move to Friday when on a Saturday and to Monday when on a Sunday;
+    // New Year's Day on a Saturday is not moved back into December
+    const fixed = (mm, dd, back = true) => (m === mm && day === dd)
+      || (back && wd === 5 && m === mm && day === dd - 1)
+      || (wd === 1 && m === mm && day === dd + 1);
+    if (fixed(0, 1, false)) return true; // New Year's Day
+    if (m === 0 && wd === 1 && nth(3)) return true; // Martin Luther King Jr. Day
+    if (m === 1 && wd === 1 && nth(3)) return true; // Presidents' Day
+    if (m === 4 && wd === 1 && last) return true; // Memorial Day
+    if (y >= 2022 && fixed(5, 19)) return true; // Juneteenth
+    if (fixed(6, 4)) return true; // Independence Day
+    if (m === 8 && wd === 1 && nth(1)) return true; // Labor Day
+    if (m === 10 && wd === 4 && nth(4)) return true; // Thanksgiving
+    if (fixed(11, 25)) return true; // Christmas
+    // Good Friday: two days before Easter Sunday (anonymous Gregorian algorithm)
+    const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4;
+    const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, mm = Math.floor((a + 11 * h + 22 * l) / 451);
+    const easter = new Date(y, Math.floor((h + l - 7 * mm + 114) / 31) - 1, ((h + l - 7 * mm + 114) % 31) + 1);
+    const goodFriday = new Date(easter.getFullYear(), easter.getMonth(), easter.getDate() - 2);
+    return goodFriday.getMonth() === m && goodFriday.getDate() === day;
+  }
+
+  const isSession = (d) => d.getDay() !== 0 && d.getDay() !== 6 && !isMarketHoliday(d);
+
+  /**
+   * The most recent trading day whose US close has passed, as a local-midnight Date.
    * `nowNY` must carry New York wall-clock time in its local fields.
-   * Market holidays are not known here, so this can point one session further
-   * forward than reality — it drives wording, never a rejection of data.
    */
   function lastCompletedSession(nowNY) {
     const d = new Date(nowNY.getFullYear(), nowNY.getMonth(), nowNY.getDate());
     if (nowNY.getHours() < 16) d.setDate(d.getDate() - 1); // today has not closed yet
-    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+    while (!isSession(d)) d.setDate(d.getDate() - 1);
     return d;
   }
 
-  /** Weekdays strictly after `from`, up to and including `to`. */
+  /** Trading days strictly after `from`, up to and including `to`. */
   function sessionsBetween(from, to) {
     let n = 0;
     const d = new Date(from);
     for (d.setDate(d.getDate() + 1); d <= to; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() !== 0 && d.getDay() !== 6) n++;
+      if (isSession(d)) n++;
     }
     return n;
   }
@@ -761,8 +798,9 @@
   /**
    * How current a published file is, as a state the page can speak about:
    *   current  — nothing newer exists to publish
-   *   pending  — a close has happened that the refresh has not published yet
-   *   stale    — far enough behind that a run has probably failed
+   *   pending  — only today's close is missing: the refresh runs after the close and
+   *              has always published the same evening (Sep 21 – Oct 23, 2026)
+   *   stale    — an earlier session is missing, so a run has failed
    * The old code inferred this from a hard-coded "refresh lands by 19:00" rule,
    * which said nothing to the reader and went wrong when a run started later.
    */
@@ -774,7 +812,7 @@
       && last.getFullYear() === nowNY.getFullYear();
     const pad = (n) => String(n).padStart(2, "0");
     return {
-      state: behind === 0 ? "current" : behind > 2 ? "stale" : "pending",
+      state: behind === 0 ? "current" : behind === 1 && isToday ? "pending" : "stale",
       behind,
       expected: `${last.getFullYear()}-${pad(last.getMonth() + 1)}-${pad(last.getDate())}`,
       expectedIsToday: isToday,
@@ -799,7 +837,7 @@
     DEFAULTS, LIMITS, WINDOW_PRESETS, LEVEL_SESSIONS, PAGE_SETTINGS, WEIGHTS, TIERS,
     normalize, strengthTier, tickerInfo, findPivots, rollingLow, cluster, analyze, labels, trendCall, benchmark,
     volumeProfile, compareWindows, findings, bottomLine, dataBase, snapshot, diffSnapshots, truncate, fromPayload,
-    lastCompletedSession, sessionsBetween, freshness,
+    lastCompletedSession, sessionsBetween, freshness, isMarketHoliday,
     weekStart, resampleWeekly, chartModel,
   };
 });

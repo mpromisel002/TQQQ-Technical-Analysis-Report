@@ -219,14 +219,13 @@
     b.hidden = fr.state === "current";
     b.classList.toggle("info", fr.state === "pending");
     if (fr.state === "stale") {
-      b.textContent = `Heads up: this data is ${fr.behind} trading sessions old. The daily refresh may have failed — the levels below may be out of date.`;
-    } else if (fr.state === "pending" && fr.expectedIsToday) {
-      // the common case: the market has closed but tonight's run has not gone yet
-      b.textContent = "Today's session has closed. This report rebuilds after the close, so today's figures usually appear a few hours later — "
-        + `until then you are looking at the ${fmtDate(m.as_of)} close.`;
+      const missing = fr.behind === 1 ? `the ${fmtDate(fr.expected)} close` : `${fr.behind} trading days, up to the ${fmtDate(fr.expected)} close`;
+      b.textContent = `Out of date: this report is missing ${missing}. The daily refresh may have failed, so the levels below may be out of date.`
+        + (lag ? " The price source had not published the latest close when the last run went." : "");
     } else if (fr.state === "pending") {
-      b.textContent = `The ${fmtDate(fr.expected)} close has not been published yet; the next scheduled run should pick it up.`
-        + (lag ? " The price source had not published it when the last run went." : "");
+      // the common case: the market has closed but tonight's run has not gone yet
+      b.textContent = "Today's session has closed. This report rebuilds after the close, so today's figures usually appear within a few hours. "
+        + `Until then you are looking at the ${fmtDate(m.as_of)} close.`;
     }
     $("#dataMeta").textContent = `Loaded ${m.rows} sessions (${state.data.dates[0]} to ${m.as_of}) from ${m.source}; generated ${m.generated_utc.replace("T", " ").replace("Z", " UTC")}.` +
       (m.warnings && m.warnings.length ? ` Data notes: ${m.warnings.join("; ")}` : "");
@@ -269,7 +268,7 @@
     const strongest = [...r.supports].sort((a, b) => b.score - a.score)[0];
     const fb = r.fallbacks[0];
     $("#kpis").innerHTML = [
-      kpi("Last close", money(d.close[i]), `<span class="${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "▲" : "▼"} ${pct(chg, 2)}</span> on the day`),
+      kpi(`Last close · ${shortDate(d.dates[i])}`, money(d.close[i]), `<span class="${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "▲" : "▼"} ${pct(chg, 2)}</span> on the day${extHoursLine(d.dates[d.dates.length - 1])}`),
       kpi("Trend", `<span class="pill ${l.trend.label}">${l.trend.label}</span>`,
         l.maCross ? `${l.maCross.type} ${fmtDate(l.maCross.date)}` : "50 vs 200-day"),
       s ? kpi("Nearest support", money(s.price), `${s.inZone ? "Price is in the zone" : pct(s.distancePct) + " away"} · ${s.touches} touch${s.touches > 1 ? "es" : ""}`)
@@ -279,6 +278,57 @@
       kpi("RSI (14)", l.rsi.value.toFixed(0), l.rsi.label + ` · MACD ${l.macd.label.toLowerCase()}`),
       kpi("From 12-month high", `<span class="down">${pct(l.drawdown, 1)}</span>`, `High ${money(l.high12m)}`),
     ].join("");
+  }
+
+  /* ------------------------------------------- pre-market and after-hours price */
+  const EXT_LABEL = { pre: "Pre-market", post: "After hours" };
+
+  const shortDate = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+  /**
+   * The line under "Last close" while pre-market or after-hours trading is on (from /quote).
+   * The change is from the newest regular close. Each weekday the report is rebuilt a few
+   * hours after the close, so during after hours that close is often newer than the report's
+   * own: it is then shown, and said to be missing from the report, so the two prices on the
+   * card are not read as one day's.
+   */
+  function extHoursLine(reportDate) {
+    const q = state.quote;
+    if (!q || q.status !== "ok" || !EXT_LABEL[q.session]) return "";
+    const price = Number(q.price), change = Number(q.changePct), at = new Date(q.time);
+    if (!isFinite(price) || !isFinite(change) || isNaN(at)) return "";
+    const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }).replace("AM", "am").replace("PM", "pm");
+    const dated = /^\d{4}-\d{2}-\d{2}$/.test(q.closeDate);
+    const close = Number(q.close);
+    const newer = dated && reportDate && q.closeDate > reportDate && isFinite(close);
+    const from = newer ? `the ${shortDate(q.closeDate)} close of ${money(close)}, which this report does not include yet`
+      : dated ? `the ${shortDate(q.closeDate)} close` : "the last close";
+    return `<div class="ext" id="extHours"><b>${EXT_LABEL[q.session]} ${money(price)}</b> ` +
+      `<span class="${change >= 0 ? "up" : "down"}">${change >= 0 ? "▲" : "▼"} ${pct(change, 2)}</span><br>` +
+      `from ${from} · ${time} New York time</div>`;
+  }
+
+  /**
+   * Ask the lookup service for the pre-market or after-hours price, and ask again when it
+   * says to: every minute during those hours, else when they next start. Nothing is shown
+   * when the service is not set up or cannot be reached; the rest of the page is unaffected.
+   */
+  async function pollQuote() {
+    if (!state.listing || !state.listing.proxy) return;
+    let next = 300;
+    if (document.hidden) next = 60; // a tab in the background asks nothing
+    else {
+      try {
+        const r = await fetch(`${state.listing.proxy}/quote?symbol=${encodeURIComponent(tk().symbol)}`);
+        const q = await r.json();
+        state.quote = r.ok ? q : null;
+        if (r.ok && isFinite(q.next)) next = Math.min(3600, Math.max(5, Number(q.next)));
+      } catch (e) {
+        state.quote = null;
+      }
+      renderKpis();
+    }
+    setTimeout(pollQuote, next * 1000);
   }
 
   function renderTable() {
@@ -947,6 +997,7 @@
       state.charts.main = buildMainChart();
       state.charts.bench = buildBenchChart();
       update();
+      pollQuote();
     } catch (e) {
       console.error(e);
       $("#blHeadline").textContent = `Could not load the data file (${esc(e.message)}). Please try again later.`;

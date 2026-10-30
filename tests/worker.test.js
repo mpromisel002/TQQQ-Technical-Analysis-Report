@@ -141,3 +141,62 @@ test("a request the Worker does not know is answered, not ignored", async () => 
   assert.equal(r.status, 404);
   assert.equal((await handle(req("OPTIONS", "/prices?symbol=DIA"), {}, fakeNet().impl)).status, 204);
 });
+
+// /quote: Yahoo's real one-minute reply for TQQQ, saved at 05:56 New York on 2026-10-27 (pre-market)
+const PREMARKET = fs.readFileSync(path.join(__dirname, "fixtures", "yahoo-tqqq-premarket-2026-10-27.json"), "utf8");
+const yahooQuote = (body = PREMARKET) => async (url) => {
+  assert.match(String(url), /\/v8\/finance\/chart\/TQQQ\?range=1d&interval=1m&includePrePost=true$/);
+  return new Response(body, { status: 200 });
+};
+const quoteAt = async (iso, fetchImpl = yahooQuote()) => {
+  const { handle } = await load();
+  const r = await handle(req("GET", "/quote?symbol=TQQQ"), {}, fetchImpl, new Date(iso));
+  return { status: r.status, cache: r.headers.get("Cache-Control"), body: await r.json() };
+};
+
+test("quote: pre-market price against the last regular close, not Yahoo's previousClose", async () => {
+  const q = await quoteAt("2026-10-27T09:53:00Z"); // 5:53 New York
+  assert.equal(q.status, 200);
+  assert.equal(q.cache, "public, max-age=60");
+  assert.deepEqual({ ...q.body, changePct: q.body.changePct.toFixed(4) }, {
+    status: "ok", symbol: "TQQQ", session: "pre", label: "Pre-market", price: 68.64, time: "2026-10-27T09:53:00.000Z",
+    close: 68.43, closeDate: "2026-10-26", changePct: "0.3069", next: 60,
+  });
+  // the reply's previousClose is Friday's close; using it would give +3.5% instead
+  assert.equal(JSON.parse(PREMARKET).chart.result[0].meta.previousClose, 66.29);
+});
+
+test("quote: the newest price up to now, never a later one", async () => {
+  const q = await quoteAt("2026-10-27T08:00:10Z"); // 4:00 New York, with later bars in the reply
+  assert.equal(q.body.price, 67.63);
+  assert.equal(q.body.time, "2026-10-27T08:00:00.000Z");
+});
+
+test("quote: after hours with no prices yet, regular hours and closed each say so, and when to ask again", async () => {
+  const post = await quoteAt("2026-10-27T21:00:00Z"); // 17:00 New York; the saved reply has only pre-market bars
+  assert.deepEqual([post.body.status, post.body.session, post.body.message, post.body.next], ["none", "post", "No after-hours prices yet.", 60]);
+  const open = await quoteAt("2026-10-27T19:30:00Z"); // 15:30: after hours starts in 30 minutes
+  assert.deepEqual([open.body.status, open.body.session, open.body.next], ["none", "regular", 1800]);
+  assert.equal(open.body.message, "Regular trading hours: there is no pre-market or after-hours price to show.");
+  assert.equal((await quoteAt("2026-10-27T14:00:00Z")).body.next, 3600); // never more than an hour
+  const night = await quoteAt("2026-10-28T01:00:00Z"); // 21:00
+  assert.deepEqual([night.body.session, night.body.message, night.body.next], ["closed", "Pre-market and after-hours trading are closed.", 3600]);
+});
+
+test("quote: an after-hours price is read from the after-hours bars", async () => {
+  const y = JSON.parse(PREMARKET), r = y.chart.result[0];
+  const postStart = r.meta.currentTradingPeriod.post.start;
+  r.timestamp.push(postStart + 60, postStart + 120);
+  r.indicators.quote[0].close.push(68.1, null); // a minute with no price is skipped
+  const q = await quoteAt("2026-10-27T20:05:00Z", yahooQuote(JSON.stringify(y)));
+  assert.deepEqual([q.body.session, q.body.label, q.body.price, q.body.time], ["post", "After hours", 68.1, "2026-10-27T20:01:00.000Z"]);
+  assert.ok(q.body.changePct < 0);
+});
+
+test("quote: an unknown symbol or an unreachable source is explained", async () => {
+  const missing = await quoteAt("2026-10-27T09:53:00Z", async () => new Response(JSON.stringify({ chart: { result: null } }), { status: 404 }));
+  assert.deepEqual([missing.status, missing.body.message], [404, "No prices were found for TQQQ. Check the symbol."]);
+  const down = await quoteAt("2026-10-27T09:53:00Z", async () => { throw new Error("offline"); });
+  assert.deepEqual([down.status, down.body.message], [502, "Could not reach the price source for TQQQ. Please try again later."]);
+  assert.equal(down.cache, null); // a failure is not cached
+});

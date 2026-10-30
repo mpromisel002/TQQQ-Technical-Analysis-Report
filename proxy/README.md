@@ -8,6 +8,7 @@ from other websites — so this small Cloudflare Worker ([`worker.mjs`](worker.m
 | Request | What it does |
 |---|---|
 | `GET /prices?symbol=DIA` | Two years of daily prices for DIA and its benchmark (SPY; QQQ for SPY), adjusted for splits and dividends, in the shape of a data file. Today's bar is left out until 16:15 New York time. The page works out the indicators itself (`docs/js/indicators.js`) |
+| `GET /quote?symbol=TQQQ` | TQQQ's latest pre-market (4:00–9:30 New York) or after-hours (16:00–20:00) price from Yahoo's one-minute prices, its change from the last regular close, and how many seconds until it is worth asking again: 60 during those hours, else until they next start (at most an hour). Outside those hours it says there is none. The page shows it under **Last close** |
 | `POST /add?symbol=DIA` | Starts the **Add a ticker** workflow ([`add-ticker.yml`](../.github/workflows/add-ticker.yml)), which adds DIA to the daily list only if it passes the same checks as the nightly refresh |
 
 It turns a symbol away, with the reason in plain words, if it is not a symbol, has no prices,
@@ -15,7 +16,7 @@ is not a stock or fund, or has fewer than 260 trading days of history. Adding al
 the list has 50 tickers, or when one visitor has asked for 5 additions that day.
 
 Until the Worker is set up, the page says that looking up other tickers is not switched on,
-and everything else works as before.
+shows no pre-market or after-hours price, and everything else works as before.
 
 ## Setting it up (about 10 minutes)
 
@@ -52,7 +53,8 @@ repository.
    commit.
 7. **Try it:** open the report with `?ticker=DIA`. It should say DIA is shown live, with an
    **Add DIA to the daily list** button. After pressing it, the **Add a ticker** run appears
-   in the repository's Actions tab.
+   in the repository's Actions tab. Between 4:00 and 9:30, or 16:00 and 20:00 New York time,
+   a pre-market or after-hours price appears under **Last close**.
 
 To switch adding off again, delete the token (`npx wrangler secret delete GITHUB_TOKEN`);
 viewing tickers live keeps working. To switch the whole feature off, set `"proxy": ""`.

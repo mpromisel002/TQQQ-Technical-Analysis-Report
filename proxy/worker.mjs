@@ -6,6 +6,9 @@
  *                             the page can show a ticker that is not on the daily list yet.
  *   POST /add?symbol=XYZ      asks GitHub to run the add-ticker job, which adds XYZ to the
  *                             daily list if it passes the same checks as the nightly refresh.
+ *   GET  /quote?symbol=XYZ    XYZ's latest pre-market (4:00-9:30 New York) or after-hours
+ *                             (16:00-20:00) price, against the last regular close, and when
+ *                             to ask again. Outside those hours it says there is none.
  *
  * The page cannot fetch Yahoo itself: Yahoo does not allow requests from other websites.
  * Every answer that is not a success says why, in plain words, in `message`.
@@ -46,6 +49,11 @@ export async function handle(request, env = {}, fetchImpl = fetch, now = new Dat
     return got.payload ? reply(200, got.payload, { "Cache-Control": "public, max-age=900" }) : reply(got.status, got.error);
   }
 
+  if (url.pathname === "/quote" && request.method === "GET") {
+    const got = await quote(symbol, fetchImpl, now);
+    return reply(got.status, got.body, got.status === 200 ? { "Cache-Control": "public, max-age=60" } : {});
+  }
+
   if (url.pathname === "/add" && request.method === "POST") {
     if (!env.GITHUB_TOKEN || !env.GITHUB_REPO || !env.LIMITS) {
       return reply(503, { status: "not-set-up", message: "Adding tickers to the daily list is not switched on yet. You can still view any ticker live." });
@@ -76,7 +84,7 @@ export async function handle(request, env = {}, fetchImpl = fetch, now = new Dat
     return reply(202, { status: "requested", message: `${symbol} passed the first checks. The daily job is checking it now and will add it to the list within a few minutes if it passes.` });
   }
 
-  return reply(404, { status: "rejected", message: "Unknown request. Use GET /prices?symbol=XYZ or POST /add?symbol=XYZ." });
+  return reply(404, { status: "rejected", message: "Unknown request. Use GET /prices?symbol=XYZ, GET /quote?symbol=XYZ or POST /add?symbol=XYZ." });
 }
 
 /**
@@ -146,4 +154,54 @@ async function chart(symbol, fetchImpl) {
     out.volume.push(q.volume[i] || 0);
   });
   return out;
+}
+
+const SESSIONS = { pre: "Pre-market", post: "After hours" };
+const NONE_YET = { pre: "No pre-market prices yet.", post: "No after-hours prices yet." };
+
+/**
+ * The latest pre-market or after-hours price for `symbol`, from Yahoo's one-minute bars.
+ * The change is measured from Yahoo's last regular close (regularMarketPrice): its
+ * `previousClose` is the close before that one (checked 2026-10-27, when it still gave
+ * Friday's close on Tuesday morning). `next` is how many seconds until it is worth asking
+ * again: a minute during those hours, else until the next of them starts (at most an hour).
+ */
+export async function quote(symbol, fetchImpl = fetch, now = new Date()) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m&includePrePost=true`;
+  let body;
+  try {
+    const r = await fetchImpl(url, { headers: { "User-Agent": "Mozilla/5.0 (support-levels-proxy)" } });
+    body = await r.json();
+  } catch (e) {
+    return { status: 502, body: { status: "error", message: `Could not reach the price source for ${symbol}. Please try again later.` } };
+  }
+  const res = body && body.chart && body.chart.result && body.chart.result[0];
+  const m = res && res.meta, periods = m && m.currentTradingPeriod;
+  if (!periods || m.regularMarketPrice == null) return { status: 404, body: { status: "rejected", message: `No prices were found for ${symbol}. Check the symbol.` } };
+
+  const t = Math.floor(now.getTime() / 1000);
+  const session = ["pre", "regular", "post"].find((k) => periods[k] && periods[k].start <= t && t < periods[k].end) || "closed";
+  const starts = ["pre", "post"].map((k) => periods[k] && periods[k].start).filter((x) => x > t);
+  const next = session === "pre" || session === "post" ? 60 : Math.max(60, Math.min(3600, starts.length ? Math.min(...starts) - t : 3600));
+  const close = m.regularMarketPrice;
+  const closeDate = new Date((m.regularMarketTime + (m.gmtoffset || 0)) * 1000).toISOString().slice(0, 10);
+  if (!SESSIONS[session]) {
+    const why = session === "regular" ? "Regular trading hours: there is no pre-market or after-hours price to show." : "Pre-market and after-hours trading are closed.";
+    return { status: 200, body: { status: "none", symbol, session, message: why, close, closeDate, next } };
+  }
+  // the newest one-minute bar inside this session, up to now
+  const p = periods[session], ts = res.timestamp || [], c = (res.indicators && res.indicators.quote[0].close) || [];
+  let last = -1;
+  ts.forEach((x, i) => { if (x >= p.start && x < p.end && x <= t && c[i] != null) last = i; });
+  if (last < 0) {
+    return { status: 200, body: { status: "none", symbol, session, message: NONE_YET[session], close, closeDate, next } };
+  }
+  const price = c[last];
+  return {
+    status: 200,
+    body: {
+      status: "ok", symbol, session, label: SESSIONS[session], price, time: new Date(ts[last] * 1000).toISOString(),
+      close, closeDate, changePct: (price / close - 1) * 100, next,
+    },
+  };
 }

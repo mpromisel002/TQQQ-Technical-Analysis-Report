@@ -18,6 +18,11 @@ Written 2026-10-25. This file records what was asked for, what the review found,
 | 8 | `show-hide-indicators` | Phase 5: show or hide every chart layer, with its tests (section 8) |
 | 9 | `multi-ticker` | Phase 2, part 1: several tickers from a list (section 5) |
 | 10 | `any-ticker` | Phase 2, part 2: any ticker, live, and adding it to the daily list (section 5) |
+| 11 | `page-order` | Order of the page; "What changed" in the bottom line (section 14) |
+| 12 | `test-safari` | Browser tests in Safari's engine, and two Safari fixes (section 15) |
+| 13 | `data-branch` | The daily data on its own branch (section 16) |
+| 14 | `readme-screenshot` | README: a screenshot at the top, and brought up to date |
+| 15 | `extended-hours` | Pre-market and after-hours price (section 18) |
 
 ---
 
@@ -212,6 +217,18 @@ The requests, copied word for word:
 > thinking about it is it the same repo or a new repo so it doesnt bloat this one
 
 > ok
+
+> review readme any recommendations to update it?  can we add a good screen shot at the begging of it?
+
+> make it PR 14 and send it
+
+> do we have an option to after hours price on top and projected open?
+
+> Yes
+
+> problem isclose is not todays close
+
+> yes fix the banner in PR 15
 
 ## 2. Decisions made
 
@@ -570,6 +587,27 @@ Also fixed: the stylesheet asked for a 16-pixel gap between the top bar and the 
 **Checked.** In a scratch copy with its own remote: the first run created the branch from the last copy (no shared history with `main`), and a second run checked it out, ran the real snapshot job through the link and pushed only to the branch, leaving `main` untouched. The commit message step gives "Data revision: QQQ as of 2026-10-23", "Data revision: TQQQ, QQQ as of 2026-10-23", and "Start the market-data branch from main's docs/data" on the first run. The workflows themselves have not run on GitHub: the fork's scheduled workflows are switched off on purpose.
 
 **Tests.** A browser test opens the page at a GitHub Pages address, with every request answered locally, and checks that the list, prices and what changed are asked of the branch's address and nothing of the site's `data/` folder, for TQQQ and for QQQ's folder; another checks the address for both GitHub Pages sites, a local preview and another host. The lookup service's tests answer the list only at the branch's address. All tests pass with no `docs/data` present, as on `main` after the merge.
+
+## 18. Pre-market and after-hours price (fifteenth pull request)
+
+**Asked for:** the after-hours price at the top, and a projected open.
+
+**Measured first (2026-10-27, 5:53 New York).** Yahoo's chart API gives one-minute pre-market prices when asked for them: TQQQ at $68.64, against Monday's close of $68.43. Its `previousClose` field still gave Friday's close, $66.29, so measuring from it would have shown +3.5% instead of +0.3%. The change is measured from `regularMarketPrice`, the last regular close.
+
+**Decided:**
+
+| Option | Decision |
+|---|---|
+| Pre-market and after-hours price under **Last close** | Built |
+| Projected open from Nasdaq-100 futures × 3 | Not built. The futures' previous close is taken at a different time from the 4 pm stock close, so the two changes do not start from the same point, and it would only estimate what the pre-market price already shows |
+
+**How it works.** The lookup service has a new request, `GET /quote?symbol=X`, which reads Yahoo's one-minute prices for today and returns the newest one inside the pre-market (4:00–9:30 New York) or after-hours (16:00–20:00) session, its change from the last regular close, and when to ask again (a minute during those hours, else when they next start, at most an hour). The page asks once it has loaded and then when told to, and asks nothing while the tab is in the background. With no lookup service, nothing is asked and nothing is shown.
+
+**Not checked yet:** a real after-hours reply. The saved reply is from the pre-market; the after-hours case is tested by adding after-hours minutes to it. That Yahoo's `regularMarketPrice` is that day's close during after hours is expected but not yet seen.
+
+**Tests.** The lookup service against Yahoo's real reply (`tests/fixtures/yahoo-tqqq-premarket-2026-10-27.json`): the price, the close it is measured from, never a price later than now, the other sessions and when to ask again, and failures. In the browser, in Chrome and Safari's engine: the wording, up or down, updating when told to, no line and no error with no price or no service, nothing from the service shown as HTML, and the line fitting its card on a phone.
+
+**Banner fix (same pull request).** Asked for after a preview showed Oct 23 data on Tuesday evening, Oct 27, with only a quiet "update pending" banner: the page waited until three sessions were missing before calling the data out of date. Now only today's close may be missing for "update pending"; any earlier missing session is "out of date". Checked against the record first: from Sep 21 to Oct 23, 2026 every session was published the same evening (at most 4.7 hours after the close; about 17 minutes since Sep 30), so the stricter rule does not fire on a normal day. The page did not know market holidays, so the morning after one would have read as out of date; it now follows the NYSE holiday rules, which match every trading day in two years of recorded prices (one one-off closure, Jan 9, 2025, is listed by date).
 
 ## 17. Order of work
 

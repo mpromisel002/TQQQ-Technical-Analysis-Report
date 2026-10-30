@@ -23,6 +23,9 @@ async function withProxy(page, { prices = 200, add = { status: 202, body: { stat
   await page.route("**/data/tickers.json*", (r) => r.fulfill({ contentType: "application/json", body: JSON.stringify({ ...listing, proxy: PROXY }) }));
   await page.route(`${PROXY}/**`, (r) => {
     const u = new URL(r.request().url());
+    if (u.pathname === "/quote") { // the pre-market and after-hours price: covered in extended-hours.spec.js
+      return r.fulfill({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ status: "none", session: "closed", next: 3600 }) });
+    }
     asked.push(`${r.request().method()} ${u.pathname}?${u.searchParams}`);
     if (u.pathname === "/prices") {
       return prices === 200

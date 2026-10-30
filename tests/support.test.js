@@ -305,18 +305,47 @@ test("freshness: after the close but before the refresh reads as pending", () =>
   assert.equal(SR.freshness("2026-09-21", ny("2026-09-22T16:00")).state, "pending");
 });
 
-test("freshness: a missed session is pending, not silently current", () => {
+test("freshness: any missing session before today is stale", () => {
   // Wednesday morning with Monday's data — Tuesday's run did not publish
   const f = SR.freshness("2026-09-21", ny("2026-09-23T10:00"));
-  assert.equal(f.state, "pending");
+  assert.equal(f.state, "stale");
+  assert.equal(f.behind, 1);
   assert.equal(f.expected, "2026-09-22");
   assert.equal(f.expectedIsToday, false);
+  // Tuesday evening with Friday's data: Monday's close is missing as well as today's
+  const g = SR.freshness("2026-10-23", ny("2026-10-27T21:00"));
+  assert.deepEqual([g.state, g.behind, g.expected], ["stale", 2, "2026-10-27"]);
+  assert.equal(SR.freshness("2026-09-18", ny("2026-09-24T17:00")).state, "stale");
 });
 
-test("freshness: several sessions behind is stale", () => {
-  const f = SR.freshness("2026-09-18", ny("2026-09-24T17:00"));
-  assert.equal(f.state, "stale");
-  assert.ok(f.behind >= 3);
+test("freshness: a market holiday is not a missing session", () => {
+  // Friday after Thanksgiving 2026 (Thursday 26th), Wednesday's close published
+  assert.equal(SR.freshness("2026-11-25", ny("2026-11-27T10:00")).state, "current");
+  // Tuesday after Labor Day 2026, Friday's close published, before the close
+  assert.equal(SR.freshness("2026-09-04", ny("2026-09-08T10:00")).state, "current");
+  // ... and after it: only today's close is missing
+  assert.equal(SR.freshness("2026-09-04", ny("2026-09-08T17:00")).state, "pending");
+});
+
+test("the holiday calendar matches the trading days in two years of recorded prices", () => {
+  const dates = new Set(JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "tqqq-2026-10-23.json"), "utf8")).dates);
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const wrong = [];
+  for (const d = new Date(2024, 9, 24); d <= new Date(2026, 9, 23); d.setDate(d.getDate() + 1)) {
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+    if (SR.isMarketHoliday(d) === dates.has(iso(d))) wrong.push(iso(d));
+  }
+  assert.deepEqual(wrong, []);
+});
+
+test("the holiday calendar moves weekend holidays as the exchange does", () => {
+  const h = (y, m, d) => SR.isMarketHoliday(new Date(y, m - 1, d));
+  assert.equal(h(2027, 3, 26), true); // Good Friday 2027
+  assert.equal(h(2027, 7, 5), true); // July 4th 2027 is a Sunday: closed Monday
+  assert.equal(h(2027, 12, 24), true); // Christmas 2027 is a Saturday: closed Friday
+  assert.equal(h(2027, 12, 31), false); // New Year's Day 2028 is a Saturday: not moved into December
+  assert.equal(h(2026, 7, 3), true); // July 4th 2026 is a Saturday: closed Friday
+  assert.equal(h(2026, 10, 27), false);
 });
 
 test("sessionsBetween skips weekends", () => {
