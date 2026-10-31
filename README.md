@@ -283,6 +283,9 @@ GitHub Actions — every 30 min from 16:15 New York, first to find new data wins
   ├─ pipeline/snapshot.js  save today's levels to data/history/YYYY-MM-DD.json
   │                        and write data/changes.json (the daily diff)
   │
+  ├─ pipeline/options.py   record the calls at the close to data/options.json
+  │                        (for the covered-call plan; nothing on the page reads it yet)
+  │
   └─ pipeline/data_branch.sh put   commit to the market-data branch (not main)
 
 GitHub Pages serves the page from main's /docs; the page reads its data from the
@@ -334,6 +337,7 @@ The daily data is not on `main`: it is on the **`market-data` branch**, which ho
 | `pipeline/indicators.py` | Moving averages, RSI, MACD, Bollinger Bands, ATR, drawdown |
 | `pipeline/build.py` | Builds a ticker's data file, such as `data/tqqq.json` |
 | `pipeline/snapshot.js` | Daily level snapshots and the "what changed" feed |
+| `pipeline/options.py`, `<dir>/options.json` (market-data branch) | Each night's call options for the next 4 weeks and the nearest monthly, from the close to +40% (step 1 of [`docs/covered-calls-plan.md`](docs/covered-calls-plan.md)) |
 | `pipeline/tests/` | pytest checks on the saved price data |
 | `tests/support.test.js` | Node unit tests for the support method |
 | `tests/golden.test.js`, `tests/golden/` | The recorded support output, checked on every run |
@@ -440,6 +444,7 @@ All tests run on every pull request (`.github/workflows/tests.yml`), and the cov
 | `pipeline/tests/test_add_ticker.py` | Adding a ticker: checks first, data second, the list last — and the list unchanged if anything fails |
 | `tests/browser/any-ticker.spec.js` | A ticker not on the list shown live, the add button's answers, a ticker turned away, and the lookup box |
 | `tests/browser/tickers.spec.js` | The ticker menu, `?ticker=` links and remembering the choice, ticker-specific wording (no "TQQQ" or "3×" on QQQ's page), and a ticker not on the list |
+| `pipeline/tests/test_options.py` | Recording option chains, on a real TQQQ chain saved from the Oct 30, 2026 close: which expiries, the strikes kept, each check that stops a bad chain, and the previous file kept when it stops |
 | `pipeline/tests/test_tickers.py` | The ticker list is valid and every ticker has its data file; a broken list is stopped with the reason; building another ticker; older data files still work |
 | `tests/browser/show-hide.spec.js` | Each switch hides its layer and legend entry; Simple view and Show all; the page address carries the layers and a shared link wins |
 | `tests/browser/security.spec.js` | Puts HTML and script into every text field of the data files and checks none of it reaches the page as HTML |
@@ -470,6 +475,7 @@ Newest first. The full plan behind these changes, including the original request
 
 | Date | Change |
 |---|---|
+| 2026-10-31 | **Plan for selling covered calls, and step 1: recording option chains.** The plan ([`docs/covered-calls-plan.md`](docs/covered-calls-plan.md)) suggests calls to sell at the levels above the price, with the premium, the rise given up, the chance of being called, and the breakeven against the floors below. Step 1 records each night's calls for the next 4 weeks and the nearest monthly, for TQQQ, QQQ and SPY, on the `market-data` branch. Nothing on the page changes; after 2–3 weeks of records, the "thin" liquidity thresholds are set from them, then the card is built. |
 | 2026-10-25 | **README.** A screenshot of the page at the top, and nine places brought up to date with the page: the section order, the bottom line's rows, the findings count, the swing-low markers, what "What changed" compares, "List every level", other tickers, and the Safari and data-branch tests. No change to the app. |
 | 2026-10-25 | **The daily data has its own branch.** The nightly refresh and the add-ticker job commit to a `market-data` branch instead of `main`, so `main`'s history is code only (46 of its last 64 commits were data). The page reads the data from that branch through GitHub's raw-file address; the folder layout is unchanged. The branch is created from `main`'s last copy of the data on the first run, which starts when this change is merged. For a local preview, run `npm run data` first. |
 | 2026-10-25 | **Safari.** The browser tests also run in Safari's engine, on a Mac and an iPhone. They found two problems, now fixed: pressing Enter in the Ticker field did nothing in Safari, and moving a Method slider quickly made Safari stop the page updating (it allows at most 100 changes of the page's address in 10 seconds; the page now changes it at most once every 250 ms). |

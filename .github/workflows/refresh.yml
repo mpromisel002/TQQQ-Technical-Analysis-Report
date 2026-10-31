@@ -105,6 +105,19 @@ jobs:
         run: |
           for sym in ${{ steps.build.outputs.written }}; do node pipeline/snapshot.js --symbol "$sym"; done
 
+      - name: Record option chains
+        id: options
+        if: steps.build.outputs.changed == 'true'
+        # Step 1 of docs/covered-calls-plan.md: record the calls at the close; nothing on the page
+        # reads them yet. A ticker whose chain cannot be recorded keeps its previous file, and the
+        # prices are still published; the run is stopped at the end so the failure is seen.
+        run: |
+          failed=""
+          for sym in ${{ steps.build.outputs.written }}; do
+            python pipeline/options.py --symbol "$sym" || { echo "::error::$sym: option chain not recorded; its previous one is kept."; failed="$failed $sym"; }
+          done
+          echo "failed=${failed# }" >> "$GITHUB_OUTPUT"
+
       - name: Commit to the data branch
         if: steps.build.outputs.changed == 'true' || steps.data.outputs.created == 'true'
         run: |
@@ -134,6 +147,12 @@ jobs:
         if: steps.build.outputs.failed != ''
         run: |
           echo "::error::These tickers were not refreshed: ${{ steps.build.outputs.failed }}. The others were published."
+          exit 1
+
+      - name: Stop the run if any option chain was not recorded
+        if: steps.options.outputs.failed != ''
+        run: |
+          echo "::error::Option chains not recorded for: ${{ steps.options.outputs.failed }}. Prices were published."
           exit 1
 
       - name: Open an issue if the refresh failed
