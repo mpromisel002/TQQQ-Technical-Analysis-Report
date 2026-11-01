@@ -1,6 +1,6 @@
 # Plan: selling covered calls
 
-Written 2026-10-31. Decisions made the same day (section 6). **Step 1, recording option chains nightly, is built** (`pipeline/options.py`); the card is not.
+Written 2026-10-31. Decisions made the same day (section 6). **Step 1, recording option chains nightly, is built** (`pipeline/options.py`). **Step 3, the card, is built ahead of step 2**, with temporary "thin" limits (section 7); step 2 replaces them once 2–3 weeks of chains are recorded.
 
 **Goal.** For someone who owns the shares and wants to sell a call against them: suggest
 strikes at the price levels the page already finds above the price, and say in plain words
@@ -55,8 +55,8 @@ gets a note instead.
 
 1. **One line of context first:** the last close, the date and time of the option prices, the
    nearest floor below, and the levels above the price.
-2. **A table of suggested calls** (columns as in the example above), grouped by expiry,
-   best liquidity first within each group.
+2. **A table of suggested calls**, one expiry at a time (a switch picks it; the monthly is
+   shown first), lowest strike first. The premium stands out: it is what the reader is paid.
 3. **One sentence per row on demand** (tap a row): the plain-words reading in the example.
 4. **A short warning that cannot be closed:** a covered call caps the gain at the strike and
    leaves the loss below the breakeven; for a leveraged fund a fall can be fast.
@@ -64,11 +64,11 @@ gets a note instead.
 ### How strikes are chosen
 
 - **At each level above the price:** the first listed strike at or above A1, A2, A3, …
-- **When there is no level above the price** (common: 0.4 a day on average for TQQQ): strikes
-  at 1, 2 and 3 typical weekly moves above the close (ATR × √5 per week), labelled as such, so
-  the card never goes empty.
-- **Expiries:** the next 4 weekly ones and the nearest monthly within 45 days. (To decide: see
-  section 6.)
+- **By chance of being called:** the strikes whose chance of ending above them is nearest 30%
+  and 20%, using liquid calls when there are any. These are there every day, so they also cover
+  the days with no level above the price (common: 0.4 levels a day on average for TQQQ). They
+  replace the plan's first idea for those days, strikes at 1, 2 and 3 typical weekly moves.
+- **Expiries:** the next 4 weekly ones and the nearest monthly within 45 days.
 - **Strikes below the price are not suggested** (they are likely to be called away at once).
 
 ### How each figure is worked out
@@ -81,7 +81,7 @@ gets a note instead.
 | Chance it ends above the strike | From the option's implied volatility: N(d₂) with no interest rate. Worded as *"by the option's own price"*: it is the market's figure, not a forecast. |
 | Breakeven | Last close − premium. Shown next to S1 and S2, so the reader sees how small the cushion is against a fall to the next floor. |
 | Return if called | (Strike − last close + premium) / last close. |
-| Liquidity | Open interest, and the bid-ask spread as % of the middle price. Rows below the thresholds are marked "thin" and sorted last. |
+| Liquidity | Open interest, and the bid-ask spread as % of the middle price. Rows below the thresholds are marked "thin", in their place by strike. |
 
 ---
 
@@ -142,3 +142,24 @@ SPY 351 (34 KB). Each night replaces the file, and every night's version stays i
 | Which tickers? | The daily list (TQQQ, QQQ, SPY): all have chains. |
 | Show the yearly figure? | Yes, with the note that it is not a forecast. It is what sellers compare. |
 | Include cash-secured puts (selling puts at the floors below)? | Not now. The same data and code would support it later, using S1, S2… as strikes. |
+
+---
+
+## 7. Step 3, built before step 2 (2026-10-31)
+
+The card was asked for before the 2–3 weeks of records exist. So "thin" uses temporary limits,
+set from the one night recorded (the Oct 30 close), in `SR.THIN` in `docs/js/support.js`:
+
+| A call is thin when | Limit | What the Oct 30 record showed, strikes up to +25% |
+|---|---|---|
+| it has no bid | — | TQQQ 5 of 90 calls, SPY 55 of 339 |
+| the gap between bid and ask is wider than this share of the middle price | 50% | TQQQ: middle strike 31%, one in four wider than 62%. QQQ and SPY: middle strike 9% |
+| open interest is under | 100 | One strike in ten under 99–134 |
+
+Replayed on the Oct 30 record: 34 of TQQQ's 90 calls up to +25% are marked thin. The case
+named above, the Nov 13 $71 call at $0.25 / $1.20 (a gap of 131%), is marked; the Nov 6 $67 at
+$1.01 / $1.20 (17%) is not. Step 2 replaces these limits with ones measured over 2–3 weeks.
+
+The card is checked against the worked example in section 1: every figure in that table is a
+unit test (`tests/support.test.js`), and the browser tests (`tests/browser/covered-calls.spec.js`)
+use the same Oct 30 prices and option prices.

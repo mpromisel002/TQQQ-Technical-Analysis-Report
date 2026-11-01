@@ -781,6 +781,124 @@
     };
   }
 
+  /* ------------------------------------------------------------------ covered calls */
+  // A call is "thin" (hard to sell near the bid shown) with no bid, a bid–ask gap wider than
+  // spreadPct of the middle price, or open interest below openInterest. Temporary limits, set
+  // from the one night recorded so far (Oct 30, 2026: the middle TQQQ strike's gap was 31%,
+  // one in four was wider than 62%; one in ten strikes had open interest below 100-134).
+  // Step 2 of docs/covered-calls-plan.md replaces them with limits measured over 2-3 weeks.
+  const THIN = { spreadPct: 50, openInterest: 100 };
+  // besides the levels, the strikes whose chance of ending above them is nearest these (%)
+  const CHANCE_TARGETS = [30, 20];
+
+  /** Standard normal cumulative distribution (Abramowitz & Stegun 7.1.26, error below 1.5e-7). */
+  function normCdf(x) {
+    const t = 1 / (1 + 0.3275911 * Math.abs(x) / Math.SQRT2);
+    const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x / 2);
+    return x >= 0 ? (1 + y) / 2 : (1 - y) / 2;
+  }
+
+  /**
+   * The chance, in %, that the price ends above `strike` in `days` calendar days, by the option's
+   * own implied volatility (N(d2), no interest rate). The market's figure, not a forecast.
+   */
+  function chanceAbove(price, strike, iv, days) {
+    if (!(iv > 0) || !(days > 0) || !(price > 0) || !(strike > 0)) return null;
+    const s = iv * Math.sqrt(days / 365);
+    return normCdf((Math.log(price / strike) - s * s / 2) / s) * 100;
+  }
+
+  /** The figures for selling one call against shares bought at `close`. */
+  function callFigures(c, close, days, atr) {
+    const bid = c.bid > 0 ? c.bid : 0;
+    const mid = c.bid != null && c.ask > 0 ? (c.bid + c.ask) / 2 : null;
+    const spreadPct = mid ? (c.ask - c.bid) / mid * 100 : null;
+    const thinWhy = [];
+    if (!bid) thinWhy.push("no bid");
+    else if (spreadPct == null) thinWhy.push("no ask");
+    else if (spreadPct > THIN.spreadPct) thinWhy.push(`the gap between bid and ask is ${Math.round(spreadPct)}% of the middle price`);
+    if (!(c.open_interest >= THIN.openInterest)) thinWhy.push(`open interest is ${c.open_interest == null ? "not given" : c.open_interest}`);
+    return {
+      strike: c.strike, bid, ask: c.ask, openInterest: c.open_interest, spreadPct, iv: c.iv,
+      premiumPct: bid / close * 100,
+      perYearPct: bid / close * 100 * 365 / days,
+      risePct: (c.strike / close - 1) * 100,
+      riseAtr: atr > 0 ? (c.strike - close) / atr : null,
+      chance: chanceAbove(close, c.strike, c.iv, days),
+      breakeven: close - bid,
+      ifCalledPct: (c.strike - close + bid) / close * 100,
+      thin: thinWhy.length > 0, thinWhy,
+    };
+  }
+
+  /**
+   * Suggested covered calls from a recorded options file (pipeline/options.py) and the levels.
+   * For each expiry: the first listed strike at or above each level above the price, then the
+   * strikes whose chance of ending above them is nearest 30% and 20%, lowest strike first.
+   * Thin calls stay in strike order, marked.
+   * Returns { state: "none" } when there is no file, { state: "other-close" } when the option
+   * prices are from a different close than the report, else { state: "ok", groups, ... }.
+   */
+  function coveredCalls(options, data, res) {
+    const asOf = data.dates[res.end];
+    if (!options || typeof options !== "object" || !Array.isArray(options.expiries)) return { state: "none" };
+    const m = options.meta || {};
+    if (m.as_of !== asOf) return { state: "other-close", optionsAsOf: /^\d{4}-\d{2}-\d{2}$/.test(m.as_of) ? m.as_of : null, asOf };
+    const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const close = res.price, atr = res.atr;
+    const levels = res.above.map((z) => ({ id: z.id, price: z.price }));
+    const found = Object.fromEntries(levels.map((l) => [l.id, 0]));
+    const groups = options.expiries
+      .filter((e) => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && num(e.days) > 0 && Array.isArray(e.calls))
+      .map((e) => {
+        const calls = e.calls.map((c) => ({ strike: num(c.strike), bid: num(c.bid), ask: num(c.ask), open_interest: num(c.open_interest), iv: num(c.iv) }))
+          .filter((c) => c.strike != null && c.strike >= close).sort((a, b) => a.strike - b.strike);
+        const picked = new Map(); // strike -> { call, why: [...] }
+        const pick = (c, why) => {
+          if (!picked.has(c.strike)) picked.set(c.strike, { c, why: [] });
+          picked.get(c.strike).why.push(why);
+        };
+        for (const l of levels) {
+          const c = calls.find((x) => x.strike >= l.price);
+          if (c) { pick(c, { kind: "level", id: l.id, price: l.price }); found[l.id]++; }
+        }
+        // by chance: liquid calls only, unless every call is thin
+        let priced = calls.map((c) => ({ c, p: chanceAbove(close, c.strike, c.iv, e.days), thin: callFigures(c, close, e.days, atr).thin }))
+          .filter((x) => x.p != null && x.c.bid > 0);
+        if (priced.some((x) => !x.thin)) priced = priced.filter((x) => !x.thin);
+        for (const target of CHANCE_TARGETS) {
+          const best = priced.reduce((b, x) => (!b || Math.abs(x.p - target) < Math.abs(b.p - target) ? x : b), null);
+          if (best) pick(best.c, { kind: "chance", target });
+        }
+        const rows = [...picked.values()].map(({ c, why }) => ({ ...callFigures(c, close, e.days, atr), why }))
+          .sort((a, b) => a.strike - b.strike);
+        return { date: e.date, days: e.days, monthly: e.monthly === true, rows };
+      })
+      .filter((g) => g.rows.length);
+    return {
+      state: "ok", asOf, close, atr, levels, groups,
+      fetchedUtc: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(m.fetched_utc) ? m.fetched_utc : null,
+      floor: res.supports[0] ? { id: res.supports[0].id, price: res.supports[0].price } : null,
+      // levels too far above the close for any recorded strike (the file keeps up to +40%)
+      unpriced: levels.filter((l) => !found[l.id]),
+    };
+  }
+
+  /** One row in plain words (plain text: the page escapes it). */
+  function callSentence(row, g, cc, symbol, fmt, fmtDate) {
+    const when = fmtDate(g.date).replace(/, \d{4}$/, "");
+    const k = fmt(row.strike).replace(/\.00$/, "");
+    const name = `the ${when} ${k} call`;
+    if (!row.bid) return `Nobody was bidding for ${name} at the close, so selling it would bring in nothing that can be counted on.`;
+    let s = `Sell ${name} for about ${fmt(row.bid)} a share (${row.premiumPct.toFixed(1)}%). `
+      + `If ${symbol} is above ${k} on ${when}${row.chance != null ? `, about a ${Math.round(row.chance)}% chance by the option's own price,` : ""} `
+      + `the shares are sold at ${k}: a gain of ${row.ifCalledPct.toFixed(1)}% including the premium, and nothing above that. `
+      + `If it falls, the premium covers only the first ${fmt(row.bid)}`;
+    s += cc.floor ? `; the nearest floor, ${cc.floor.id} at ${fmt(cc.floor.price)}, is ${Math.abs((cc.floor.price / cc.close - 1) * 100).toFixed(1)}% below the close.` : ".";
+    if (row.thin) s += ` Marked thin: ${row.thinWhy.join(", and ")}. The bid shown may not be there when you sell.`;
+    return s;
+  }
+
   /** Slice the payload's arrays up to (and including) index `end` — used for backfilling history. */
   function truncate(data, end) {
     const out = { ...data };
@@ -800,6 +918,7 @@
     normalize, strengthTier, tickerInfo, findPivots, rollingLow, cluster, analyze, labels, trendCall, benchmark,
     volumeProfile, compareWindows, findings, bottomLine, dataBase, snapshot, diffSnapshots, truncate, fromPayload,
     lastCompletedSession, sessionsBetween, freshness,
+    THIN, normCdf, chanceAbove, callFigures, coveredCalls, callSentence,
     weekStart, resampleWeekly, chartModel,
   };
 });

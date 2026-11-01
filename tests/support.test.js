@@ -533,3 +533,108 @@ test("a zone made of one swing low is written as one price, not a range", () => 
   assert.ok(!/\$(\d+\.\d\d)–\$\1\b/.test(text), "no range from a price to the same price");
   assert.ok(text.includes("$707.23"));
 });
+
+/* ------------------------------------------------------------ covered calls */
+// prices and option prices from the Oct 30, 2026 close, as the nightly job wrote them
+const CC = (() => {
+  const d = SR.fromPayload(JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "tqqq-2026-10-30.json"), "utf8")));
+  const options = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "options-tqqq-2026-10-30.json"), "utf8"));
+  return { d, options, res: SR.analyze(d, SR.PAGE_SETTINGS) };
+})();
+const ccRow = (cc, date, strike) => cc.groups.find((g) => g.date === date).rows.find((r) => r.strike === strike);
+
+test("the normal distribution and the chance of ending above a strike match values worked out by hand", () => {
+  assert.ok(Math.abs(SR.normCdf(0) - 0.5) < 1.5e-7); // the approximation is good to 1.5e-7
+  assert.ok(Math.abs(SR.normCdf(1) - 0.841345) < 1e-6);
+  assert.ok(Math.abs(SR.normCdf(-1.96) - 0.024998) < 1e-6);
+  // at the money with no time value left over: just under 50% (the -σ²T/2 term)
+  // σ√T = 0.5 × √(365/365) = 0.5, d2 = -0.25, N(-0.25) = 40.13%
+  assert.ok(Math.abs(SR.chanceAbove(100, 100, 0.5, 365) - 40.129) < 1e-3);
+  assert.equal(SR.chanceAbove(100, 110, null, 30), null);
+  assert.equal(SR.chanceAbove(100, 110, 0.5, 0), null);
+});
+
+test("the covered calls on Oct 30 reproduce the plan's worked example", () => {
+  const cc = SR.coveredCalls(CC.options, CC.d, CC.res);
+  assert.equal(cc.state, "ok");
+  assert.deepEqual(cc.levels.map((l) => [l.id, +l.price.toFixed(2)]), [["A1", 66.59], ["A2", 70.26], ["A3", 75.47]]);
+  assert.deepEqual([cc.floor.id, +cc.floor.price.toFixed(2)], ["S1", 57.48]);
+  // docs/covered-calls-plan.md, section 1: expiry, strike, premium %, per year %, rise %, typical days,
+  // chance %, breakeven, return if called %
+  const plan = [
+    ["2026-11-06", 67, 1.6, 85, 8.0, 1.3, 23, 61.00, 9.7], ["2026-11-06", 70.5, 0.4, 23, 13.7, 2.2, 12, 61.74, 14.1],
+    ["2026-11-13", 67, 2.4, 63, 8.0, 1.3, 27, 60.51, 10.5], ["2026-11-13", 71, 0.4, 11, 14.5, 2.4, 14, 61.76, 14.9],
+    ["2026-11-20", 67, 3.5, 61, 8.0, 1.3, 30, 59.85, 11.5], ["2026-11-20", 70.5, 2.0, 35, 13.7, 2.2, 20, 60.76, 15.7],
+    ["2026-11-20", 75.5, 0.8, 14, 21.8, 3.5, 9, 61.52, 22.5],
+  ];
+  for (const [date, strike, prem, year, rise, days, chance, be, called] of plan) {
+    const r = ccRow(cc, date, strike);
+    assert.ok(r, `${date} $${strike} is suggested`);
+    assert.deepEqual([+r.premiumPct.toFixed(1), Math.round(r.perYearPct), +r.risePct.toFixed(1), +r.riseAtr.toFixed(1),
+      Math.round(r.chance), +r.breakeven.toFixed(2), +r.ifCalledPct.toFixed(1)], [prem, year, rise, days, chance, be, called], `${date} $${strike}`);
+  }
+  // the premium is the bid, not the last trade or the middle
+  assert.equal(ccRow(cc, "2026-11-20", 67).bid, 2.16);
+});
+
+test("strikes: the first at or above each level, then by chance; never below the close", () => {
+  const cc = SR.coveredCalls(CC.options, CC.d, CC.res);
+  const nov20 = cc.groups.find((g) => g.date === "2026-11-20");
+  const why = (r) => r.why.map((w) => (w.kind === "level" ? w.id : `${w.target}%`)).join(",");
+  assert.deepEqual(nov20.rows.map((r) => [r.strike, why(r)]), [[67, "A1,30%"], [70, "20%"], [70.5, "A2"], [75.5, "A3"]]);
+  for (const g of cc.groups) for (const r of g.rows) assert.ok(r.strike >= cc.close, `${g.date} $${r.strike}`);
+  // with no level above the price, the strikes by chance are still there
+  const none = SR.coveredCalls(CC.options, CC.d, { ...CC.res, above: [] });
+  assert.ok(none.groups.every((g) => g.rows.length >= 1 && g.rows.every((r) => r.why.every((w) => w.kind === "chance"))));
+  // a level beyond the recorded strikes (the file keeps up to +40%) is named, not dropped
+  const far = SR.coveredCalls(CC.options, CC.d, { ...CC.res, above: [...CC.res.above, { id: "A4", price: 95 }] });
+  assert.deepEqual(far.unpriced, [{ id: "A4", price: 95 }]);
+});
+
+test("thin calls: the temporary limits mark the wide quotes and not the normal ones", () => {
+  const cc = SR.coveredCalls(CC.options, CC.d, CC.res);
+  // $0.25 bid / $1.20 ask: the case the plan named
+  assert.match(ccRow(cc, "2026-11-13", 71).thinWhy.join(), /131% of the middle price/);
+  assert.equal(ccRow(cc, "2026-11-06", 67).thin, false); // $1.01 / $1.20
+  assert.match(ccRow(cc, "2026-11-20", 70.5).thinWhy.join(), /open interest is 64/);
+  // thin calls stay in strike order, marked
+  for (const g of cc.groups) assert.deepEqual(g.rows.map((r) => r.strike), [...g.rows.map((r) => r.strike)].sort((a, b) => a - b), g.date);
+  // a call with no bid is thin and pays nothing
+  const f = SR.callFigures({ strike: 72.5, bid: 0, ask: 0.33, open_interest: 1108, iv: 0.7 }, 62.01, 7, 3.82);
+  assert.deepEqual([f.thin, f.thinWhy, f.premiumPct], [true, ["no bid"], 0]);
+  // replayed against the whole recorded night: how many TQQQ calls up to +25% the rule marks
+  const marked = CC.options.expiries.flatMap((e) => e.calls.filter((c) => c.strike <= 62.01 * 1.25)
+    .map((c) => SR.callFigures(c, 62.01, e.days, 3.82).thin));
+  assert.equal(marked.length, 90);
+  assert.ok(marked.filter(Boolean).length < marked.length / 2, `${marked.filter(Boolean).length} of 90 marked thin`);
+});
+
+test("the option prices must be from the report's close", () => {
+  assert.equal(SR.coveredCalls(null, CC.d, CC.res).state, "none");
+  const other = SR.coveredCalls({ ...CC.options, meta: { ...CC.options.meta, as_of: "2026-10-29" } }, CC.d, CC.res);
+  assert.deepEqual(other, { state: "other-close", optionsAsOf: "2026-10-29", asOf: "2026-10-30" });
+});
+
+test("a damaged options file gives no row built from it", () => {
+  const bad = JSON.parse(JSON.stringify(CC.options));
+  bad.meta.fetched_utc = "<img src=x>";
+  bad.expiries[0].date = "<b>soon</b>";
+  bad.expiries[1].calls[0] = { strike: "<script>", bid: "1", ask: 2 };
+  const cc = SR.coveredCalls(bad, CC.d, CC.res);
+  assert.equal(cc.fetchedUtc, null);
+  assert.ok(!cc.groups.some((g) => g.date.includes("<")));
+  for (const g of cc.groups) for (const r of g.rows) assert.equal(typeof r.strike, "number");
+});
+
+test("each covered call reads as a sentence", () => {
+  const cc = SR.coveredCalls(CC.options, CC.d, CC.res);
+  const fmt = (v) => "$" + v.toFixed(2);
+  const fmtDate = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const g = cc.groups.find((x) => x.date === "2026-11-20");
+  assert.equal(SR.callSentence(ccRow(cc, "2026-11-20", 67), g, cc, "TQQQ", fmt, fmtDate),
+    "Sell the Nov 20 $67 call for about $2.16 a share (3.5%). If TQQQ is above $67 on Nov 20, about a 30% chance by the option's own price, "
+    + "the shares are sold at $67: a gain of 11.5% including the premium, and nothing above that. "
+    + "If it falls, the premium covers only the first $2.16; the nearest floor, S1 at $57.48, is 7.3% below the close.");
+  assert.match(SR.callSentence(ccRow(cc, "2026-11-13", 71), cc.groups[1], cc, "TQQQ", fmt, fmtDate),
+    /Marked thin: the gap between bid and ask is 131% of the middle price\. The bid shown may not be there when you sell\.$/);
+});

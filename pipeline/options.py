@@ -1,7 +1,7 @@
 """Record a ticker's call options at the close, for the covered-call card (docs/covered-calls-plan.md).
 
-Step 1 of the plan: record only. Nothing on the page reads this file yet. After 2-3 weeks of
-recorded chains, the "thin" (poor liquidity) thresholds are set from the record.
+Step 1 of the plan. The page's "Selling covered calls" card reads this file. After 2-3 weeks of
+recorded chains, the "thin" (poor liquidity) thresholds are set from the record (step 2).
 
     python pipeline/options.py --symbol TQQQ
 

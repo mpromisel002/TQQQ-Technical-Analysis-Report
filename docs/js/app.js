@@ -114,6 +114,17 @@
   }
 
   function bindControls() {
+    // a covered-call row opens its sentence on a tap, or Enter / Space when it has focus
+    $("#ccExpiry").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-date]");
+      if (b) { state.ccExpiry = b.dataset.date; renderCoveredCalls(); }
+    });
+    const ccBody = $("#ccTable tbody");
+    ccBody.addEventListener("click", (e) => { const tr = e.target.closest("tr.cc-row"); if (tr) toggleCallRow(tr); });
+    ccBody.addEventListener("keydown", (e) => {
+      const tr = e.target.closest("tr.cc-row");
+      if (tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggleCallRow(tr); }
+    });
     $$("#windowSeg button").forEach((b) => b.addEventListener("click", () => {
       state.windowKey = b.dataset.w;
       state.opts = SR.normalize({ ...state.opts, window: SR.WINDOW_PRESETS[b.dataset.w] });
@@ -334,6 +345,73 @@
         "Heavy volume at a support test suggests real buying behind the bounce."],
     ];
     $("#indTable tbody").innerHTML = rows.map((r) => `<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td class="num">${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td></tr>`).join("");
+  }
+
+  // "Selling covered calls": suggested calls at the levels above the price, from the option
+  // prices recorded at the close (state.options, <dir>/options.json on the data branch)
+  function renderCoveredCalls() {
+    const sym = tk().symbol, lev = tk().leverage;
+    const table = $("#ccTable"), ctx = $("#ccContext"), foot = $("#ccFoot");
+    $("#ccWarn").textContent = "A covered call caps the gain at the strike and keeps almost all of the loss: the premium covers only the first few percent of a fall."
+      + (lev > 1 ? ` ${sym} is ${lev}× leveraged, so a fall to the next floor can come within days.` : "")
+      + " Educational use only, not investment advice.";
+    $("#ccThinDef").textContent = `no bid, a gap between bid and ask wider than ${SR.THIN.spreadPct}% of the middle price, or open interest under ${SR.THIN.openInterest}. `
+      + "The bid shown may not be there when you sell. These limits are temporary, set from the first night of recorded prices.";
+    const cc = state.ticker && state.ticker.live ? { state: "live" } : SR.coveredCalls(state.options, state.data, state.res);
+    state.cc = cc;
+    table.hidden = foot.hidden = $("#ccDefs").hidden = $("#ccExpiry").hidden = cc.state !== "ok";
+    if (cc.state === "live") {
+      ctx.textContent = `Covered-call suggestions are only for tickers on the daily list, whose option prices are recorded each night. ${sym} is shown live.`;
+      return;
+    }
+    if (cc.state === "none") {
+      ctx.textContent = `No option prices are recorded for ${sym} yet. They are recorded each night after the close.`;
+      return;
+    }
+    if (cc.state === "other-close") {
+      ctx.textContent = `The option prices on file are from ${cc.optionsAsOf ? `the ${fmtDate(cc.optionsAsOf)} close` : "an unknown date"}, `
+        + `but this report is from the ${fmtDate(cc.asOf)} close, so no calls are suggested until the two match.`;
+      return;
+    }
+    // the date and the time apart: browsers join them differently ("Oct 31, 7:53 PM" / "Oct 31 at 7:53 PM")
+    const ny = (o) => new Date(cc.fetchedUtc).toLocaleString("en-US", { timeZone: "America/New_York", ...o });
+    const when = cc.fetchedUtc ? `${ny({ month: "short", day: "numeric" })}, ${ny({ hour: "numeric", minute: "2-digit" }).toLowerCase()}` : null;
+    const lv = cc.levels.map((l) => `${l.id} ${money(l.price)}`).join(", ");
+    ctx.textContent = `Last close ${money(cc.close)} on ${fmtDate(cc.asOf)}. Option prices from the same close${when ? ` (recorded ${when} New York time)` : ""}. `
+      + (lv ? `Levels above the price: ${lv}. ` : "No level above the price at these settings, so only the strikes by chance of being called are shown. ")
+      + (cc.floor ? `Nearest floor below: ${cc.floor.id} ${money(cc.floor.price)}, ${pct((cc.floor.price / cc.close - 1) * 100)}. ` : "")
+      + "Tap a row to read it in words.";
+    // one expiry at a time: the one picked, else the monthly, else the nearest
+    const gi = Math.max(0, cc.groups.findIndex((g) => g.date === state.ccExpiry) >= 0
+      ? cc.groups.findIndex((g) => g.date === state.ccExpiry) : cc.groups.findIndex((g) => g.monthly));
+    const day = (d, o) => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC", ...o });
+    $("#ccExpiry").innerHTML = cc.groups.map((g, i) => `<button type="button" role="radio" aria-checked="${i === gi}" data-date="${esc(g.date)}">`
+      + `${esc(day(g.date))}<span class="muted"> · ${g.days}d${g.monthly ? " · monthly" : ""}</span></button>`).join("");
+    const g = cc.groups[gi];
+    if (!g) { $("#ccTable tbody").innerHTML = ""; return; }
+    const strike = (v) => money(v).replace(/\.00$/, "");
+    const whyText = (w) => w.map((x) => (x.kind === "level" ? `at ${x.id} ${money(x.price)}` : `${x.target}% pick`)).join(" · ");
+    $("#ccTable tbody").innerHTML = g.rows.map((r, ri) => `<tr class="cc-row${r.thin ? " thin" : ""}" tabindex="0" aria-expanded="false" data-r="${ri}">
+        <td><b>${strike(r.strike)}</b><span class="sub-cell">${esc(whyText(r.why))}</span></td>
+        <td class="num">${r.bid ? `<span class="prem">${money(r.bid)}</span> <span class="prem-pct">${pct(r.premiumPct, 1, false)}</span>` : '<span class="muted">no bid</span>'}<span class="sub-cell">${pct(r.perYearPct, 0, false)} a year</span></td>
+        <td class="num">${pct(r.risePct)}${r.riseAtr != null ? `<span class="sub-cell">${r.riseAtr.toFixed(1)} typical days</span>` : ""}</td>
+        <td class="num">${r.chance == null ? "–" : Math.round(r.chance) + "%"}</td>
+        <td class="num">${money(r.breakeven)}</td>
+        <td class="num">${pct(r.ifCalledPct)}</td>
+        <td>${r.thin ? '<span class="thin-tag">thin</span>' : '<span class="muted">normal</span>'}<span class="sub-cell">${r.bid ? money(r.bid) : "none"} / ${money(r.ask)} · ${r.openInterest == null ? "–" : r.openInterest.toLocaleString("en-US")} open</span></td>
+      </tr>
+      <tr class="cc-say" hidden><td colspan="7"><p>${esc(SR.callSentence(r, g, cc, sym, money, fmtDate))}</p></td></tr>`).join("");
+    foot.textContent = cc.unpriced.length
+      ? `${cc.unpriced.map((l) => `${l.id} (${money(l.price)})`).join(", ")} ${cc.unpriced.length > 1 ? "are" : "is"} more than 40% above the close; no strikes are recorded that far up.`
+      : "";
+    foot.hidden = !foot.textContent;
+  }
+
+  /** Open or close a covered-call row's sentence. */
+  function toggleCallRow(tr) {
+    const open = tr.getAttribute("aria-expanded") !== "true";
+    tr.setAttribute("aria-expanded", String(open));
+    tr.nextElementSibling.hidden = !open;
   }
 
   // "What changed": the last row of the bottom line, from the nightly comparison (state.changes)
@@ -786,6 +864,7 @@
     renderFindings();
     renderKpis();
     renderTable();
+    renderCoveredCalls();
     renderIndicators();
     renderLegends();
     renderBenchStats();
@@ -918,7 +997,7 @@
       state.listing = (await fetch(base + "data/tickers.json" + bust).then((r) => (r.ok ? r.json() : null)).catch(() => null)) || FALLBACK_LIST;
       const want = state.requestedTicker || state.listing.default;
       state.ticker = state.listing.tickers.find((t) => t.symbol === want);
-      let payload = null, changes = null;
+      let payload = null, changes = null, options = null;
       if (!state.ticker) {
         payload = await liveTicker(want);
         if (payload) {
@@ -931,9 +1010,10 @@
       renderTickerField();
       if (!payload) {
         const dir = base + state.ticker.dir, file = `${dir}/${state.ticker.symbol.toLowerCase()}.json`;
-        [payload, changes] = await Promise.all([
+        [payload, changes, options] = await Promise.all([
           fetch(file + bust).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }),
           fetch(`${dir}/changes.json` + bust).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          fetch(`${dir}/options.json` + bust).then((r) => (r.ok ? r.json() : null)).catch(() => null),
         ]);
       }
       // the list fills in any field an older data file does not carry
@@ -942,6 +1022,7 @@
       renderTickerText();
       renderHeader();
       state.changes = changes;
+      state.options = options;
       state.res = analyze();
       state.view = SR.chartModel(state.data, state.res, state.cadence);
       state.charts.main = buildMainChart();

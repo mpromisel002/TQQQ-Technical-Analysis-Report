@@ -160,6 +160,31 @@
     </dl>
   </section>
 
+  <section class="card" aria-labelledby="h-cc" id="ccCard">
+    <h2 id="h-cc">Selling covered calls</h2>
+    <p class="cc-warn" id="ccWarn"></p>
+    <p class="help lede" id="ccContext"></p>
+    <div class="seg small cc-expiry" role="radiogroup" aria-label="Expiry" id="ccExpiry" hidden></div>
+    <div class="table-scroll"><table class="levels cc" id="ccTable" hidden>
+      <thead><tr>
+        <th scope="col">Strike</th><th scope="col" class="num">Premium you get</th><th scope="col" class="num">Rise to strike</th>
+        <th scope="col" class="num">Chance of being called</th><th scope="col" class="num">Breakeven</th>
+        <th scope="col" class="num">Return if called</th><th scope="col">Trading</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="help" id="ccFoot" hidden></p>
+    <dl class="defs wide" id="ccDefs" hidden>
+      <div><dt>Strike</dt><dd>Under each strike, why it is listed. <b>At A1, A2…</b> — the first listed strike at or above that level above the price. <b>30% pick, 20% pick</b> — the strike whose chance of being called is nearest that figure, for sellers who choose by how likely the shares are to be called away.</dd></div>
+      <div><dt>Premium</dt><dd>The bid, not the last trade or the middle price: what a seller is likely to get. Beside it, as a % of the last close; under it, that % × 365 ÷ days to expiry, "a year". The yearly figure is for comparing expiries, not a forecast: selling a call every week will not add up to it.</dd></div>
+      <div><dt>Rise to strike</dt><dd>How far the price must rise to reach the strike, and how many typical days of movement (ATR) that is.</dd></div>
+      <div><dt>Chance of being called</dt><dd>The chance the price ends above the strike at expiry, worked out from the option's own price (its implied volatility). It is the market's figure, not a forecast.</dd></div>
+      <div><dt>Breakeven</dt><dd>The last close minus the premium. Below it, the shares and the call together lose money.</dd></div>
+      <div><dt>Return if called</dt><dd>The rise to the strike plus the premium, as a % of the last close. Nothing above the strike is kept.</dd></div>
+      <div><dt>Trading</dt><dd>The bid and ask, and the open interest (contracts open at that strike). <b>Thin</b>: <span id="ccThinDef"></span></dd></div>
+    </dl>
+  </section>
+
   <div class="grid2">
     <section class="card" aria-labelledby="h-cmp">
       <h2 id="h-cmp">Does the level hold up at other window lengths?</h2>

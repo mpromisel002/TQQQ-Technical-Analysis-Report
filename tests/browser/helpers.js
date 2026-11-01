@@ -9,22 +9,28 @@ const CHANGES = fs.readFileSync(path.join(FIX, "changes-2026-10-23.json"), "utf8
 // the ticker list and its other tickers, frozen the same day (the live ones are on the
 // market-data branch, not main)
 const LIST = fs.readFileSync(path.join(FIX, "tickers.json"), "utf8");
+// option prices recorded at the Oct 30 close; the frozen prices above are from Oct 23, so by
+// default the covered-call card says the two are from different closes
+const OPTIONS = fs.readFileSync(path.join(FIX, "options-tqqq-2026-10-30.json"), "utf8");
 const OTHER = Object.fromEntries(["qqq", "spy"].map((s) => [s, {
   data: fs.readFileSync(path.join(FIX, `${s}-2026-10-23.json`), "utf8"),
   changes: fs.readFileSync(path.join(FIX, `changes-${s}-2026-10-23.json`), "utf8"),
 }]));
 
-async function openPage(page, query = "", { data = DATA, changes = CHANGES } = {}) {
+async function openPage(page, query = "", { data = DATA, changes = CHANGES, options = OPTIONS, now = "2026-10-23T20:00:00-04:00" } = {}) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-  await page.clock.setFixedTime(new Date("2026-10-23T20:00:00-04:00"));
+  await page.clock.setFixedTime(new Date(now));
   // on the context, so a test's own page.route for the list takes precedence
   await page.context().route("**/data/tickers.json*", (r) => r.fulfill({ contentType: "application/json", body: LIST }));
   await page.route("**/data/tqqq.json*", (r) => (data === null
     ? r.fulfill({ status: 404, body: "" })
     : r.fulfill({ contentType: "application/json", body: data })));
   await page.route("**/data/changes.json*", (r) => r.fulfill({ contentType: "application/json", body: changes }));
+  // the other tickers have no option prices here: answered "null", which the page reads as none
+  await page.route("**/data/**/options.json*", (r) => r.fulfill({ contentType: "application/json", body: "null" }));
+  await page.route("**/data/options.json*", (r) => r.fulfill({ contentType: "application/json", body: options === null ? "null" : options }));
   for (const [s, f] of Object.entries(OTHER)) {
     await page.route(`**/data/${s}/${s}.json*`, (r) => r.fulfill({ contentType: "application/json", body: f.data }));
     await page.route(`**/data/${s}/changes.json*`, (r) => r.fulfill({ contentType: "application/json", body: f.changes }));
@@ -57,7 +63,7 @@ async function overChart(page) {
   return box;
 }
 
-module.exports = { openPage, view, overChart, DATA };
+module.exports = { openPage, view, overChart, DATA, OPTIONS };
 
 /**
  * Checks the main chart as drawn and returns a list of problems in plain words (empty = fine):

@@ -9,7 +9,7 @@ const FIX = path.join(__dirname, "..", "fixtures");
 const SITE = "https://owner.github.io/TQQQ-Technical-Analysis-Report/";
 const RAW = "https://raw.githubusercontent.com/owner/TQQQ-Technical-Analysis-Report/market-data/";
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json" };
-// what the branch holds, as of 2026-10-23
+// what the branch holds, as of 2026-10-23 (no option prices: the page says so on the card)
 const BRANCH = {
   "data/tickers.json": "tickers.json", "data/tqqq.json": "tqqq-2026-10-23.json", "data/changes.json": "changes-2026-10-23.json",
   "data/qqq/qqq.json": "qqq-2026-10-23.json", "data/qqq/changes.json": "changes-qqq-2026-10-23.json",
@@ -45,7 +45,7 @@ test("on GitHub Pages the list, prices and what changed come from the market-dat
   const { asked, errors } = await openOnPages(page);
   await expect(page.locator("#blHeadline")).toContainText("TQQQ closed at $66.29");
   await expect(page.locator("#blChanges #changes li")).toHaveCount(1);
-  expect(asked.filter((a) => a.startsWith("branch "))).toEqual(["branch data/tickers.json", "branch data/tqqq.json", "branch data/changes.json"]);
+  expect(asked.filter((a) => a.startsWith("branch "))).toEqual(["branch data/tickers.json", "branch data/tqqq.json", "branch data/changes.json", "branch data/options.json"]);
   expect(asked.filter((a) => a.startsWith("site data/"))).toEqual([]); // nothing asked of the site's own data/ folder
   expect(errors).toEqual([]);
 });
