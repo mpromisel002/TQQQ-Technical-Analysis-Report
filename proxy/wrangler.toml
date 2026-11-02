@@ -15,7 +15,8 @@ ADDS_PER_DAY = "5"
 
 # the per-visitor limit on additions; create it with:
 #   npx wrangler kv namespace create LIMITS
-# and paste the id it prints here
+# and paste the id it prints here. Deployed from the Cloudflare dashboard instead, this file
+# is not read at all: the namespace is bound there and the id below stays as it is.
 [[kv_namespaces]]
 binding = "LIMITS"
 id = "PASTE-THE-ID-HERE"
