@@ -1,6 +1,6 @@
 {
   "default": "TQQQ",
-  "proxy": "",
+  "proxy": "https://support-levels-proxy.mpromisel002.workers.dev/",
   "tickers": [
     { "symbol": "TQQQ", "name": "ProShares UltraPro QQQ", "index": "Nasdaq-100", "leverage": 3, "benchmark": "QQQ", "dir": "data" },
     { "symbol": "QQQ", "name": "Invesco QQQ Trust", "index": "Nasdaq-100", "leverage": 1, "benchmark": "SPY", "dir": "data/qqq" },
