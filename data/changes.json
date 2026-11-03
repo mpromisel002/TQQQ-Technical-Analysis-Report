@@ -1,14 +1,5 @@
 {
- "as_of": "2026-10-30",
- "previous": "2026-10-29",
- "items": [
-  {
-   "type": "dropped",
-   "text": "Support at $68.85 is no longer on the list of levels."
-  },
-  {
-   "type": "broken",
-   "text": "Support at $66.39 broke — price closed below the zone."
-  }
- ]
+ "as_of": "2026-11-02",
+ "previous": "2026-10-30",
+ "items": []
 }
