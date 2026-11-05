@@ -1,10 +1,14 @@
 {
- "as_of": "2026-11-03",
- "previous": "2026-11-02",
+ "as_of": "2026-11-04",
+ "previous": "2026-11-03",
  "items": [
   {
    "type": "reclaimed",
-   "text": "Price climbed back above $685.33; that zone is acting as support again."
+   "text": "Price climbed back above $700.12; that zone is acting as support again."
+  },
+  {
+   "type": "dropped",
+   "text": "Support at $604.99 is no longer on the list of levels."
   }
  ]
 }

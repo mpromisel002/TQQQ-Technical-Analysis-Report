@@ -1,5 +1,14 @@
 {
- "as_of": "2026-11-03",
- "previous": "2026-11-02",
- "items": []
+ "as_of": "2026-11-04",
+ "previous": "2026-11-03",
+ "items": [
+  {
+   "type": "dropped",
+   "text": "Support at $50.18 is no longer on the list of levels."
+  },
+  {
+   "type": "trend",
+   "text": "Trend changed from Mixed to Downtrend."
+  }
+ ]
 }
