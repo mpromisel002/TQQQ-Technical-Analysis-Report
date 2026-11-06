@@ -1,14 +1,26 @@
 {
- "as_of": "2026-11-04",
- "previous": "2026-11-03",
+ "as_of": "2026-11-05",
+ "previous": "2026-11-04",
  "items": [
   {
-   "type": "reclaimed",
-   "text": "Price climbed back above $700.12; that zone is acting as support again."
+   "type": "broken",
+   "text": "Support at $700.12 broke — price closed below the zone."
   },
   {
-   "type": "dropped",
-   "text": "Support at $604.99 is no longer on the list of levels."
+   "type": "broken",
+   "text": "Support at $685.33 broke — price closed below the zone."
+  },
+  {
+   "type": "broken",
+   "text": "Support at $660.45 broke — price closed below the zone."
+  },
+  {
+   "type": "trend",
+   "text": "Trend changed from Mixed to Downtrend."
+  },
+  {
+   "type": "rsi",
+   "text": "RSI moved from neutral to oversold (26.9)."
   }
  ]
 }
