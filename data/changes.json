@@ -1,14 +1,5 @@
 {
- "as_of": "2026-11-05",
- "previous": "2026-11-04",
- "items": [
-  {
-   "type": "broken",
-   "text": "Support at $57.48 broke — price closed below the zone."
-  },
-  {
-   "type": "rsi",
-   "text": "RSI moved from neutral to oversold (26.8)."
-  }
- ]
+ "as_of": "2026-11-06",
+ "previous": "2026-11-05",
+ "items": []
 }
