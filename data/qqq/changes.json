@@ -1,10 +1,10 @@
 {
- "as_of": "2026-11-06",
- "previous": "2026-11-05",
+ "as_of": "2026-11-09",
+ "previous": "2026-11-06",
  "items": [
   {
-   "type": "rsi",
-   "text": "RSI moved from oversold to neutral (31.4)."
+   "type": "reclaimed",
+   "text": "Price climbed back above $660.45; that zone is acting as support again."
   }
  ]
 }
