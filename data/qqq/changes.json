@@ -1,10 +1,18 @@
 {
- "as_of": "2026-11-10",
- "previous": "2026-11-09",
+ "as_of": "2026-11-11",
+ "previous": "2026-11-10",
  "items": [
   {
-   "type": "new",
-   "text": "Support at $647.05 (1 touch) is now on the list of levels."
+   "type": "reclaimed",
+   "text": "Price climbed back above $701.54; that zone is acting as support again."
+  },
+  {
+   "type": "reclaimed",
+   "text": "Price climbed back above $685.33; that zone is acting as support again."
+  },
+  {
+   "type": "trend",
+   "text": "Trend changed from Downtrend to Mixed."
   }
  ]
 }
