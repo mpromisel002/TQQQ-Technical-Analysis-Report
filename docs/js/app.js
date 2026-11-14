@@ -10,6 +10,9 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const fmtDate = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   const WIN_NAMES = { 21: "1 month", 63: "3 months", 126: "6 months", 189: "9 months", 252: "12 months" };
+  // "May 5", with the year only when the date is more than a year before `asOf`
+  const recentDate = (d, asOf) => (Date.parse(asOf) - Date.parse(d) > 365 * 864e5 ? fmtDate(d)
+    : new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }));
   const winName = (w) => WIN_NAMES[w] || `${w} sessions`;
   // which optional chart panels are visible; remembered per browser
   const PANE_DEFAULTS = { vol: true, rsi: true, macd: false, dd: false, rolling: true, profile: false, above: true, bb: true,
@@ -272,9 +275,11 @@
     $("#findingsSummary").textContent = `All ${items.length} findings`;
   }
 
-  function kpi(label, value, delta, cls = "") {
-    return `<div class="kpi"><div class="label">${label}</div><div class="value ${cls}">${value}</div><div class="delta">${delta}</div></div>`;
+  function kpi(label, value, delta, cls = "", sub = "") {
+    return `<div class="kpi"><div class="label">${label}</div><div class="value ${cls}">${value}</div><div class="delta">${delta}</div>${sub}</div>`;
   }
+
+
 
   function renderKpis() {
     const d = state.data, r = state.res, l = state.lab, i = r.end;
@@ -282,17 +287,105 @@
     const s = r.supports[0];
     const strongest = [...r.supports].sort((a, b) => b.score - a.score)[0];
     const fb = r.fallbacks[0];
+    const q = benchLines();
     $("#kpis").innerHTML = [
-      kpi(`Last close · ${shortDate(d.dates[i])}`, money(d.close[i]), `<span class="${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "▲" : "▼"} ${pct(chg, 2)}</span> on the day${extHoursLine(d.dates[d.dates.length - 1])}`),
+      breakEvenCard(),
+      kpi(`Last close · ${shortDate(d.dates[i])}`, money(d.close[i]), `<span class="${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "▲" : "▼"} ${pct(chg, 2)}</span> on the day${extHoursLine(d.dates[d.dates.length - 1])}`, "", q.close),
       kpi("Trend", `<span class="pill ${l.trend.label}">${l.trend.label}</span>`,
-        l.maCross ? `${l.maCross.type} ${fmtDate(l.maCross.date)}` : "50 vs 200-day"),
-      s ? kpi("Nearest support", money(s.price), `${s.inZone ? "Price is in the zone" : pct(s.distancePct) + " away"} · ${s.touches} touch${s.touches > 1 ? "es" : ""}`)
-        : kpi("Nearest support", fb ? money(fb.price) : "–", fb ? `Fallback: ${fb.label}` : "None in window"),
-      strongest ? kpi("Strongest support", money(strongest.price), `${strongest.strength} · score ${strongest.score}/100 · ${strongest.id}`)
-        : kpi("Strongest support", "–", "None in window"),
-      kpi("RSI (14)", l.rsi.value.toFixed(0), l.rsi.label + ` · MACD ${l.macd.label.toLowerCase()}`),
-      kpi("From 12-month high", `<span class="down">${pct(l.drawdown, 1)}</span>`, `High ${money(l.high12m)}`),
+        l.maCross ? `${l.maCross.type} ${recentDate(l.maCross.date, d.dates[i])}` : "50 vs 200-day"),
+      s ? kpi("Nearest support", money(s.price), `${s.inZone ? "In zone" : pct(s.distancePct)} · ${s.touches} touch${s.touches > 1 ? "es" : ""}`, "", q.nearest)
+        : kpi("Nearest support", fb ? money(fb.price) : "–", fb ? `Fallback: ${fb.label}` : "None in window", "", q.nearest),
+      strongest ? kpi("Strongest support", money(strongest.price), `${strongest.strength} · ${strongest.score}/100 · ${strongest.id}`, "", q.strongest)
+        : kpi("Strongest support", "–", "None in window", "", q.strongest),
+      kpi("From 12-month high", `<span class="down">${pct(l.drawdown, 1)}</span>`, `High ${money(l.high12m)}`, "", q.drawdown),
     ].join("");
+  }
+
+  /**
+   * The benchmark's figures under four cards (QQQ under TQQQ), from its own data file and the
+   * same analysis. Empty when that file is missing or ends on a different day.
+   */
+  function benchLines() {
+    const b = state.bench, r = state.benchRes, l = state.benchLab;
+    if (!b || !r || !l) return {};
+    // one short line each; not on Trend, because QQQ and TQQQ trend together
+    const i = r.end, line = (html) => `<div class="kpi-sub"><b>${esc(b.meta.symbol)}</b><span>${html}</span></div>`;
+    const chg = (b.close[i] / b.close[i - 1] - 1) * 100;
+    const s = r.supports[0], strongest = [...r.supports].sort((a, c) => c.score - a.score)[0];
+    return {
+      close: line(`${money(b.close[i])} <span class="${chg >= 0 ? "up" : "down"}">${pct(chg, 2)}</span>`),
+      nearest: line(s ? `${money(s.price)} · ${s.inZone ? "in zone" : pct(s.distancePct)}` : "none"),
+      strongest: line(strongest ? `${money(strongest.price)} · ${strongest.score}/100` : "none"),
+      drawdown: line(`<span class="down">${pct(l.drawdown, 1)}</span> · ${money(l.high12m)}`),
+    };
+  }
+
+  /* ------------------------------------------------- your break-even (first card) */
+  // The visitor's average price per ticker, kept in this browser's storage only. The site
+  // has no server: the price is never sent anywhere, and it is not put in the link.
+  const AVG_KEY = (sym) => `avgPrice:${sym}`;
+  function avgPrice(sym) {
+    try { const v = parseFloat(localStorage.getItem(AVG_KEY(sym))); return v > 0 ? v : null; } catch (e) { return null; }
+  }
+  function setAvgPrice(sym, v) {
+    try { v > 0 ? localStorage.setItem(AVG_KEY(sym), String(v)) : localStorage.removeItem(AVG_KEY(sym)); } catch (e) { /* storage unavailable */ }
+  }
+  let editingAvg = false;
+
+  function breakEvenCard() {
+    const t = tk(), avg = avgPrice(t.symbol);
+    if (avg == null || editingAvg) {
+      return `<div class="kpi be" id="breakEven"><div class="label">Break-even</div>
+        <form class="be-form" id="avgForm"><span class="be-dollar">$</span><input id="avgInput" inputmode="decimal" autocomplete="off"
+          placeholder="Average price" aria-label="Your average ${esc(t.symbol)} price" value="${avg ?? ""}">
+          <button type="submit" class="btn small">Save</button></form>
+        <div class="delta">Kept in this browser only, never sent anywhere.${avg != null ? " Leave it empty to remove it." : ""}</div></div>`;
+    }
+    const b = SR.breakEven(state.data, avg, state.res.end);
+    const change = `<button type="button" class="linkish" id="avgChange">Change</button>`;
+    const head = `Break-even`;
+    if (!b) return kpi(head, "–", change);
+    // a small table: the price each has to reach, and the move in % and in points
+    const sgn = (v, f) => (v > 0 ? "+" : v < 0 ? "-" : "") + f(Math.abs(v));
+    // where the price is against the average: below = at a loss (red), above = in profit (green)
+    const pos = (b.price / avg - 1) * 100;
+    const state_ = Math.abs(pos) < 0.1 ? "at" : pos < 0 ? "below" : "above";
+    const tone = { below: "down", above: "up", at: "" }[state_];
+    const chip = { below: `Down ${pct(Math.abs(pos), 1, false)}`, above: `Up ${pct(pos, 1, false)}`, at: "At break-even" }[state_];
+    const moveHead = { below: "Move needed", above: "Room to fall", at: "Move" }[state_];
+    const row = (sym, target, move, pts, f) =>
+      `<tr><th scope="row">${esc(sym)}</th><td>${f(target)}</td><td class="be-pct ${tone}">${pct(move, 1)}</td><td>${sgn(pts, f)}</td></tr>`;
+    const rows = [];
+    rows.push(row(t.symbol, avg, b.symMove, b.symPoints, money)); // the ticker first, then its benchmark
+    if (b.bench) rows.push(row(b.bench.symbol, b.bench.target, b.bench.move, b.bench.points, money)); // both are fund prices in dollars
+    const dr = b.bench && b.bench.drift;
+    const note = dr && dr.month != null ? (dr.months3 != null ? `Drift: 3 months ±${dr.months3.toFixed(1)}% (±${dr.month.toFixed(1)}%/month)` : `Drift: ±${dr.month.toFixed(1)}%/month`) : "";
+    return `<div class="kpi be" id="breakEven"><div class="label be-head"><span>${head} <span class="be-chip ${state_}">${chip}</span></span>${change}</div>
+      <table class="be-table"><thead><tr><th></th><th scope="col">Target</th><th scope="col">${moveHead}</th><th scope="col">$ move</th></tr></thead>
+        <tbody>${rows.join("")}</tbody></table>
+      ${note ? `<div class="delta ext">${note}</div>` : ""}</div>`;
+  }
+
+  // one listener for the card, which is redrawn with the rest of the row
+  function bindBreakEven() {
+    const row = $("#kpis");
+    row.addEventListener("submit", (e) => {
+      if (e.target.id !== "avgForm") return;
+      e.preventDefault();
+      const raw = $("#avgInput").value.replace(/[$,\s]/g, "");
+      const v = parseFloat(raw);
+      if (raw !== "" && !(v > 0)) { $("#avgInput").setCustomValidity("Enter a price such as 75.50"); $("#avgInput").reportValidity(); return; }
+      setAvgPrice(tk().symbol, raw === "" ? null : v);
+      editingAvg = false;
+      renderKpis();
+    });
+    row.addEventListener("input", (e) => { if (e.target.id === "avgInput") e.target.setCustomValidity(""); });
+    row.addEventListener("click", (e) => {
+      if (e.target.id !== "avgChange") return;
+      editingAvg = true;
+      renderKpis();
+      $("#avgInput").focus();
+    });
   }
 
   /* ------------------------------------------- pre-market and after-hours price */
@@ -914,6 +1007,10 @@
   function update({ keepView = false } = {}) {
     state.res = analyze();
     state.lab = SR.labels(state.data, state.res);
+    if (state.bench) {
+      state.benchRes = SR.analyze(state.bench, { ...state.opts, minLookback: SR.LEVEL_SESSIONS, topN: Infinity, topAbove: Infinity });
+      state.benchLab = SR.labels(state.bench, state.benchRes);
+    }
     state.runs = SR.compareWindows(state.data, state.opts); // shared by the findings and the window chart
     state.view = SR.chartModel(state.data, state.res, state.cadence);
     syncControls();
@@ -1139,6 +1236,7 @@
   async function init() {
     readUrl();
     bindControls();
+    bindBreakEven();
     try {
       const bust = "?v=" + Math.floor(Date.now() / 3.6e6); // refresh at least hourly past the CDN cache
       const base = SR.dataBase(location); // the market-data branch on GitHub Pages, else data/ here
@@ -1156,6 +1254,10 @@
         }
       }
       renderTickerField();
+      // the benchmark's own file (QQQ for TQQQ), for its line under four cards; fetched alongside
+      // the ticker's files, and the page works without it
+      const bt = state.listing.tickers.find((t) => t.symbol === state.ticker.benchmark);
+      const benchFile = bt ? fetch(`${base}${bt.dir}/${bt.symbol.toLowerCase()}.json` + bust).then((r) => (r.ok ? r.json() : null)).catch(() => null) : null;
       if (!payload) {
         const dir = base + state.ticker.dir, file = `${dir}/${state.ticker.symbol.toLowerCase()}.json`;
         [payload, changes, options] = await Promise.all([
@@ -1164,9 +1266,15 @@
           fetch(`${dir}/options.json` + bust).then((r) => (r.ok ? r.json() : null)).catch(() => null),
         ]);
       }
+      const benchPayload = await benchFile;
       // the list fills in any field an older data file does not carry
       payload.meta = { ...state.ticker, ...payload.meta };
       state.data = SR.fromPayload(payload);
+      if (benchPayload) {
+        benchPayload.meta = { ...bt, ...benchPayload.meta };
+        const bd = SR.fromPayload(benchPayload);
+        if (bd.dates.at(-1) === state.data.dates.at(-1)) state.bench = bd; // only when both end on the same day
+      }
       renderTickerText();
       renderHeader();
       state.changes = changes;

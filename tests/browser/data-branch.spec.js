@@ -45,7 +45,7 @@ test("on GitHub Pages the list, prices and what changed come from the market-dat
   const { asked, errors } = await openOnPages(page);
   await expect(page.locator("#blHeadline")).toContainText("TQQQ closed at $66.29");
   await expect(page.locator("#blChanges #changes li")).toHaveCount(1);
-  expect(asked.filter((a) => a.startsWith("branch "))).toEqual(["branch data/tickers.json", "branch data/tqqq.json", "branch data/changes.json", "branch data/options.json"]);
+  expect(asked.filter((a) => a.startsWith("branch ")).sort()).toEqual(["branch data/changes.json", "branch data/options.json", "branch data/qqq/qqq.json", "branch data/tickers.json", "branch data/tqqq.json"]); // QQQ's file for its lines under the cards
   expect(asked.filter((a) => a.startsWith("site data/"))).toEqual([]); // nothing asked of the site's own data/ folder
   expect(errors).toEqual([]);
 });

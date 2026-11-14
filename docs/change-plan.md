@@ -424,7 +424,7 @@ Found while doing this, not changed:
 | Was anything checking for vulnerabilities? | **No.** No audit step and no Dependabot |
 | Do tests run on a pull request and after a merge? | Yes (`tests.yml`). **But nothing stops a merge when they fail**: `main` has no branch protection in the owner's repository |
 | GitHub Actions versions | `checkout@v4`, `setup-python@v5`, `setup-node@v4`, `upload-artifact@v4` are each three major versions behind. No known vulnerability; left for Dependabot to propose one at a time |
-| Python package versions | `requirements.txt` sets minimum versions only, so each run installs whatever is newest. Not changed here; the weekly audit checks those versions |
+| Python package versions | `requirements.txt` pins every version (changed 2026-11-14). Dependabot raises them weekly in a pull request, and the weekly audit checks them |
 
 **What this pull request adds.**
 
