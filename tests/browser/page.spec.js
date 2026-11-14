@@ -6,7 +6,7 @@ test("page renders every section with no errors", async ({ page }) => {
   const errors = await openPage(page, "?window=12m");
   await expect(page.locator("#blHeadline")).toContainText("TQQQ closed at $66.29");
   await expect(page.locator("#asOf")).toContainText(/Oct 23, 2026|2026-10-23/);
-  await expect(page.locator("#kpis .kpi")).toHaveCount(6);
+  await expect(page.locator("#kpis .kpi")).toHaveCount(6); // break-even first, then five
   await expect(page.locator("#blRows dt").first()).toHaveText("Nearest floor");
   // the 12-month window looks back 252 sessions and lists every level below the price, nearest first
   const ids = await page.locator("#levels tbody .lvl.support").allTextContents();
@@ -112,6 +112,10 @@ test("PNG download produces an image", async ({ page }) => {
 });
 
 test("moving a method slider quickly keeps the page up to date (Safari limits address changes)", async ({ page }) => {
+  // 160 key presses, each redrawing the page. On GitHub, Safari took 16.5 to 28.9 seconds in
+  // passing runs (2026-11-14), close to the usual 30-second limit, and one run was stopped at
+  // 30.6 and 31.3. 90 seconds is about three times the slowest passing time.
+  test.setTimeout(90000);
   const errors = await openPage(page);
   await page.evaluate(() => {
     window.__writes = 0;
