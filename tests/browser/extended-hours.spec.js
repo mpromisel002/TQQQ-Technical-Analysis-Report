@@ -38,7 +38,7 @@ test("before the open, the pre-market price sits under the last close, with its 
   await expect(line).toHaveText("Pre-market $68.64 ▲ +0.31%from the Oct 26 close of $68.43, which this report does not include yet · 5:53 am New York time");
   await expect(line.locator("span")).toHaveClass("up");
   // it is part of the Last close card, which now says which day's close it shows
-  await expect(page.locator(".kpi").first()).toContainText("Last close · Oct 23$66.29▼ -0.20% on the day");
+  await expect(page.locator(".kpi", { hasText: "Last close" })).toContainText("Last close · Oct 23$66.29▼ -0.20% on the day");
   expect(asked).toEqual(["GET /quote?symbol=TQQQ"]);
   expect(errors).toEqual([]);
 });
@@ -64,7 +64,7 @@ test("during regular hours, overnight, or with the service down, there is no lin
     const errors = await openPage(page);
     await expect.poll(() => asked.length).toBe(1);
     await expect(page.locator("#extHours")).toHaveCount(0);
-    await expect(page.locator(".kpi").first()).toContainText("$66.29");
+    await expect(page.locator(".kpi", { hasText: "Last close" })).toContainText("$66.29");
     expect(errors.filter((e) => !/502/.test(e))).toEqual([]); // the browser itself logs the 502
   }
 });

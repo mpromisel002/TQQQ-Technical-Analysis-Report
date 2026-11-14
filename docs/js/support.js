@@ -294,6 +294,37 @@
   const benchCloses = (data) => data.bench_close || data.qqq_close;
   const TIMES = { 2: "Two", 3: "Three" };
 
+  /**
+   * Break-even from the visitor's average price (`cost`), as of session `end`.
+   * symMove: the % the ticker has to move to get back to `cost`.
+   * For a leveraged fund, also what its benchmark (QQQ for TQQQ) has to do: the fund's move
+   * divided by its leverage, which is exact for one day only, because the fund resets every
+   * day. `drift` says how far that rule has been off in this file's own history, over a week,
+   * a month and three months: 8 in 10 past windows were within that many percentage points.
+   */
+  function breakEven(data, cost, end = data.close.length - 1) {
+    const tkr = tickerInfo(data), price = data.close[end];
+    if (!(cost > 0) || !(price > 0)) return null;
+    const symMove = (cost / price - 1) * 100;
+    const out = { cost, price, symMove, symPoints: cost - price, leverage: tkr.leverage, bench: null };
+    const bc = benchCloses(data);
+    if (tkr.leverage > 1 && bc && bc[end] > 0) {
+      const benchMove = symMove / tkr.leverage, bPrice = bc[end];
+      const drift = {};
+      for (const [name, n] of [["week", 5], ["month", 21], ["months3", 63]]) {
+        const off = [];
+        for (let i = 0; i + n <= end; i++) {
+          if (!(data.close[i] > 0 && bc[i] > 0)) continue;
+          off.push(Math.abs((data.close[i + n] / data.close[i] - 1) / tkr.leverage - (bc[i + n] / bc[i] - 1)) * 100);
+        }
+        off.sort((a, b) => a - b);
+        drift[name] = off.length >= 20 ? off[Math.min(off.length - 1, Math.floor(0.8 * off.length))] : null;
+      }
+      out.bench = { symbol: tkr.benchmark, price: bPrice, move: benchMove, target: bPrice * (1 + benchMove / 100), points: bPrice * benchMove / 100, drift };
+    }
+    return out;
+  }
+
   /** Daily-return comparison with the benchmark over the window. */
   function benchmark(data, res) {
     const bc = benchCloses(data), lev = tickerInfo(data).leverage;
@@ -959,6 +990,6 @@
     volumeProfile, compareWindows, findings, bottomLine, dataBase, snapshot, diffSnapshots, truncate, fromPayload,
     lastCompletedSession, sessionsBetween, freshness, isMarketHoliday,
     THIN, normCdf, chanceAbove, callFigures, coveredCalls, callSentence,
-    weekStart, resampleWeekly, chartModel,
+    weekStart, resampleWeekly, chartModel, breakEven,
   };
 });

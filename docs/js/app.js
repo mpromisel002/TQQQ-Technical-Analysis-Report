@@ -283,6 +283,7 @@
     const strongest = [...r.supports].sort((a, b) => b.score - a.score)[0];
     const fb = r.fallbacks[0];
     $("#kpis").innerHTML = [
+      breakEvenCard(),
       kpi(`Last close · ${shortDate(d.dates[i])}`, money(d.close[i]), `<span class="${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "▲" : "▼"} ${pct(chg, 2)}</span> on the day${extHoursLine(d.dates[d.dates.length - 1])}`),
       kpi("Trend", `<span class="pill ${l.trend.label}">${l.trend.label}</span>`,
         l.maCross ? `${l.maCross.type} ${fmtDate(l.maCross.date)}` : "50 vs 200-day"),
@@ -293,6 +294,71 @@
       kpi("RSI (14)", l.rsi.value.toFixed(0), l.rsi.label + ` · MACD ${l.macd.label.toLowerCase()}`),
       kpi("From 12-month high", `<span class="down">${pct(l.drawdown, 1)}</span>`, `High ${money(l.high12m)}`),
     ].join("");
+  }
+
+  /* ------------------------------------------------- your break-even (first card) */
+  // The visitor's average price per ticker, kept in this browser's storage only. The site
+  // has no server: the price is never sent anywhere, and it is not put in the link.
+  const AVG_KEY = (sym) => `avgPrice:${sym}`;
+  function avgPrice(sym) {
+    try { const v = parseFloat(localStorage.getItem(AVG_KEY(sym))); return v > 0 ? v : null; } catch (e) { return null; }
+  }
+  function setAvgPrice(sym, v) {
+    try { v > 0 ? localStorage.setItem(AVG_KEY(sym), String(v)) : localStorage.removeItem(AVG_KEY(sym)); } catch (e) { /* storage unavailable */ }
+  }
+  let editingAvg = false;
+  const num2 = (v) => v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function breakEvenCard() {
+    const t = tk(), avg = avgPrice(t.symbol);
+    if (avg == null || editingAvg) {
+      return `<div class="kpi be" id="breakEven"><div class="label">Your break-even</div>
+        <form class="be-form" id="avgForm"><span class="be-dollar">$</span><input id="avgInput" inputmode="decimal" autocomplete="off"
+          placeholder="Average price" aria-label="Your average ${esc(t.symbol)} price" value="${avg ?? ""}">
+          <button type="submit" class="btn small">Save</button></form>
+        <div class="delta">Kept in this browser only, never sent anywhere.${avg != null ? " Leave it empty to remove it." : ""}</div></div>`;
+    }
+    const b = SR.breakEven(state.data, avg, state.res.end);
+    const change = `<button type="button" class="linkish" id="avgChange">Change</button>`;
+    const head = `Your break-even · ${esc(t.symbol)} avg ${money(avg)}`;
+    if (!b) return kpi(head, "–", change);
+    const at = Math.abs(b.symMove) < 0.005;
+    if (!b.bench) {
+      return `<div class="kpi be" id="breakEven"><div class="label">${head}</div><div class="value">${money(avg)}</div>
+        <div class="delta">${at ? "You are at break-even" : `${t.symbol} ${b.symMove > 0 ? "needs" : "can fall"} ${pct(Math.abs(b.symMove), 1, false)} · ${money(Math.abs(b.symPoints))}`} · ${change}</div></div>`;
+    }
+    const q = b.bench, dr = q.drift;
+    const move = at ? "You are at break-even"
+      : `${q.symbol} ${q.move > 0 ? "needs" : "can fall"} <b>${pct(Math.abs(q.move), 1, false)}</b> · <b>${num2(Math.abs(q.points))} points</b>`;
+    const drift = dr.month != null
+      ? `Accurate for a few days. Over a month it can be off by ±${dr.month.toFixed(1)}%, over 3 months ±${dr.months3 != null ? dr.months3.toFixed(1) : "–"}% (8 in 10 past cases): ${esc(t.symbol)} resets daily.`
+      : "";
+    return `<div class="kpi be" id="breakEven"><div class="label">${head}</div>
+      <div class="value">${esc(q.symbol)} ${num2(q.target)}</div>
+      <div class="delta">${move} from ${num2(q.price)} · ${t.symbol} ${pct(b.symMove, 1)}</div>
+      <div class="delta ext">${drift} ${change}</div></div>`;
+  }
+
+  // one listener for the card, which is redrawn with the rest of the row
+  function bindBreakEven() {
+    const row = $("#kpis");
+    row.addEventListener("submit", (e) => {
+      if (e.target.id !== "avgForm") return;
+      e.preventDefault();
+      const raw = $("#avgInput").value.replace(/[$,\s]/g, "");
+      const v = parseFloat(raw);
+      if (raw !== "" && !(v > 0)) { $("#avgInput").setCustomValidity("Enter a price such as 75.50"); $("#avgInput").reportValidity(); return; }
+      setAvgPrice(tk().symbol, raw === "" ? null : v);
+      editingAvg = false;
+      renderKpis();
+    });
+    row.addEventListener("input", (e) => { if (e.target.id === "avgInput") e.target.setCustomValidity(""); });
+    row.addEventListener("click", (e) => {
+      if (e.target.id !== "avgChange") return;
+      editingAvg = true;
+      renderKpis();
+      $("#avgInput").focus();
+    });
   }
 
   /* ------------------------------------------- pre-market and after-hours price */
@@ -1139,6 +1205,7 @@
   async function init() {
     readUrl();
     bindControls();
+    bindBreakEven();
     try {
       const bust = "?v=" + Math.floor(Date.now() / 3.6e6); // refresh at least hourly past the CDN cache
       const base = SR.dataBase(location); // the market-data branch on GitHub Pages, else data/ here

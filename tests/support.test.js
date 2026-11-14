@@ -668,3 +668,28 @@ test("each covered call reads as a sentence", () => {
   assert.match(SR.callSentence(ccRow(cc, "2026-11-13", 71), cc.groups[1], cc, "TQQQ", fmt, fmtDate),
     /Marked thin: the gap between bid and ask is 131% of the middle price\. The bid shown may not be there when you sell\.$/);
 });
+
+test("break-even: what TQQQ and QQQ have to do to get back to an average price", () => {
+  const d = SR.fromPayload(JSON.parse(fs.readFileSync(FIXTURE, "utf8")));
+  // TQQQ closed at $66.29 and QQQ at 704.40 on 2026-10-23
+  const b = SR.breakEven(d, 75);
+  assert.ok(Math.abs(b.symMove - (75 / d.close.at(-1) - 1) * 100) < 1e-9);
+  assert.ok(Math.abs(b.symMove - 13.14) < 0.01, `TQQQ needs +13.14%, got ${b.symMove}`);
+  assert.equal(b.bench.symbol, "QQQ");
+  assert.ok(Math.abs(b.bench.move - b.symMove / 3) < 1e-9, "QQQ's move is TQQQ's divided by 3");
+  assert.ok(Math.abs(b.bench.target - d.bench_close.at(-1) * (1 + b.bench.move / 100)) < 1e-9);
+  assert.ok(Math.abs(b.bench.points - (b.bench.target - b.bench.price)) < 1e-9);
+  // how far "divide by 3" has been off in 8 of 10 past windows: the same numbers a separate
+  // Python check got from this file (0.15, 0.66 and 2.29 percentage points)
+  assert.equal(b.bench.drift.week.toFixed(2), "0.15");
+  assert.equal(b.bench.drift.month.toFixed(2), "0.66");
+  assert.equal(b.bench.drift.months3.toFixed(2), "2.29");
+  // below the price: QQQ can fall that far before the position is back at its average price
+  const below = SR.breakEven(d, 60);
+  assert.ok(below.symMove < 0 && below.bench.move < 0 && below.bench.points < 0);
+  // nothing to work out without a price
+  for (const bad of [0, -5, NaN, null, undefined]) assert.equal(SR.breakEven(d, bad), null);
+  // a fund that is not leveraged: only its own move
+  const plain = SR.breakEven({ ...d, meta: { ...d.meta, symbol: "QQQ", leverage: 1 } }, 750);
+  assert.equal(plain.bench, null);
+});
