@@ -1,14 +1,5 @@
 {
- "as_of": "2026-11-13",
- "previous": "2026-11-12",
- "items": [
-  {
-   "type": "broken",
-   "text": "Support at $685.33 broke — price closed below the zone."
-  },
-  {
-   "type": "trend",
-   "text": "Trend changed from Mixed to Downtrend."
-  }
- ]
+ "as_of": "2026-11-16",
+ "previous": "2026-11-13",
+ "items": []
 }
