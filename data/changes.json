@@ -1,14 +1,18 @@
 {
- "as_of": "2026-11-20",
- "previous": "2026-11-19",
+ "as_of": "2026-11-23",
+ "previous": "2026-11-20",
  "items": [
   {
-   "type": "broken",
-   "text": "Support at $45.97 broke — price closed below the zone."
+   "type": "reclaimed",
+   "text": "Price climbed back above $50.25; that zone is acting as support again."
+  },
+  {
+   "type": "reclaimed",
+   "text": "Price climbed back above $45.77; that zone is acting as support again."
   },
   {
    "type": "rsi",
-   "text": "RSI moved from neutral to oversold (26.6)."
+   "text": "RSI moved from oversold to neutral (38.7)."
   }
  ]
 }
