@@ -1,18 +1,5 @@
 {
- "as_of": "2026-11-23",
- "previous": "2026-11-20",
- "items": [
-  {
-   "type": "reclaimed",
-   "text": "Price climbed back above $717.09; that zone is acting as support again."
-  },
-  {
-   "type": "reclaimed",
-   "text": "Price climbed back above $701.33; that zone is acting as support again."
-  },
-  {
-   "type": "rsi",
-   "text": "RSI moved from oversold to neutral (41.5)."
-  }
- ]
+ "as_of": "2026-11-24",
+ "previous": "2026-11-23",
+ "items": []
 }
