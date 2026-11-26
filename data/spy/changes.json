@@ -1,5 +1,10 @@
 {
- "as_of": "2026-11-24",
- "previous": "2026-11-23",
- "items": []
+ "as_of": "2026-11-25",
+ "previous": "2026-11-24",
+ "items": [
+  {
+   "type": "new",
+   "text": "Support at $686.75 (1 touch) is now on the list of levels."
+  }
+ ]
 }

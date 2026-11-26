@@ -1,10 +1,5 @@
 {
- "as_of": "2026-11-24",
- "previous": "2026-11-23",
- "items": [
-  {
-   "type": "broken",
-   "text": "Support at $50.25 broke — price closed below the zone."
-  }
- ]
+ "as_of": "2026-11-25",
+ "previous": "2026-11-24",
+ "items": []
 }
